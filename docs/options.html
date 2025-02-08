@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Calculus Math Game - Options">
+    <title>Game Options - Galactic Calculus</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav id="navbar-main">
+        <a href="index.html" class="navbar-brand">
+            <img src="favicon.ico" alt="Brand Logo" class="favicon">
+            <span class="brand-title">GALACTIC CALCULUS</span>
+        </a>
+    </nav>
+    <section id="options">
+        <h1><i class="fas fa-rocket"></i> Game Options</h1>
+
+        <!-- Settings Section -->
+        <div class="settings">
+            <h2>Settings</h2>
+            <div>
+                <label>
+                    <input type="checkbox" id="diffCheckbox" checked>
+                    <span>Differentiation</span>
+                </label>
+                <label>
+                    <input type="checkbox" id="intCheckbox">
+                    <span>Integration</span>
+                </label>
+            </div>
+            <div>
+                <label for="timeSlider">Time Limit:</label>
+                <input type="range" id="timeSlider" min="30" max="300" value="60">
+                <span id="timeValue">60 seconds</span>
+            </div>
+            <div>
+                <label for="difficultySlider">Difficulty Level:</label>
+                <input type="range" id="difficultySlider" min="1" max="8" value="1">
+                <span id="difficultyValue">1</span>
+            </div>
+            <button id="startGame" onclick="location.href='game.html'">Start Game</button>
+        </div>
+    </section>
+
+    <script src="script.js"></script>
+</body>
+</html>
