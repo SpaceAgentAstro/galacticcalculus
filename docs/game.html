@@ -6,104 +6,73 @@
     <title>Galactic Calculus - Game</title>
     <link rel="stylesheet" href="styles.css" />
     <script src="https://unpkg.com/mathlive/dist/mathlive.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <style>
-        /* No inline styles needed here, as fonts are handled by styles.css and Tailwind */
-        /* Custom styling for MathLive math-field is now in styles.css */
-        /* Style for the answer input is now in styles.css */
-    </style>
     <script type="module" src="script.js" defer></script>
   </head>
-  <body class="min-h-screen flex flex-col items-center justify-center p-4">
-    <nav id="navbar-main" class="w-full max-w-6xl mx-auto mb-8 md:mb-16">
+  <body>
+    <nav id="navbar-main">
       <a href="index.html" class="navbar-brand">
         <img src="favicon.ico" alt="Brand Logo" class="favicon" />
         <span class="brand-title">GALACTIC CALCULUS</span>
       </a>
-      <ul id="auth-links" class="flex space-x-4">
-        <li><a href="login.html">Login</a></li>
-        <li><a href="signup.html">Sign Up</a></li>
-      </ul>
     </nav>
 
-    <div class="container flex flex-col items-center justify-center space-y-8">
+    <div class="container">
       <div class="game-stats">
-        <div id="score-value" class="stat"><i class="fas fa-star"></i> Score: 0</div>
-        <div id="high-score-value" class="stat"><i class="fas fa-trophy"></i> High Score: 0</div>
-        <div id="lives-value" class="stat"><i class="fas fa-heart"></i> Lives: 10</div>
-        <div id="timer-value" class="stat"><i class="fas fa-clock"></i> Time: 120</div>
-        <div id="galactic-coins-value" class="stat"><i class="fas fa-coins"></i> Coins: 0</div> </div>
+        <div id="score-value" class="stat">Score: 0</div>
+        <div id="high-score-value" class="stat">High Score: 0</div>
+        <div id="lives-value" class="stat">Lives: 10</div>
+        <div id="timer-value" class="stat">Time: 120</div>
+      </div>
 
-      <div id="equation" class="problem-section">
-        </div>
+      <div id="equation" class="problem-section"></div>
 
-      <div class="input-section flex flex-col md:flex-row">
-        <input type="text" id="answer" placeholder="Your answer here" />
-        <button id="submit">
-          Submit
-        </button>
+      <div class="input-section">
+        <math-field id="answer" class="math-input-field" virtual-keyboard-mode="manual" placeholder="Your answer here"></math-field>
+        <button id="submit">Submit</button>
       </div>
 
       <div class="powerups">
         <button id="skip-button" class="powerup">Skip (0)</button>
         <button id="double-score-button" class="powerup">Double Score (0)</button>
         <button id="extra-time-button" class="powerup">Extra Time (0)</button>
-        <button id="shop-button" class="powerup bg-yellow-600 hover:bg-yellow-700">
-          <i class="fas fa-store"></i> Shop
-        </button> </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-8 w-full">
-        <div id="stats" class="detailed-stats">
-          </div>
-        <div id="milestone-history" class="milestone-history">
-          <h3 class="text-blue-300 mb-4">Milestone History</h3>
-          </div>
       </div>
 
-      <div id="leaderboard" class="leaderboard">
-        <h3 class="text-blue-300 mb-4">Leaderboard</h3>
-        </div>
+      <div id="stats" class="detailed-stats"></div>
+      <div id="milestone-history"></div>
+
+      <div id="leaderboard" class="leaderboard"></div>
     </div>
 
     <div id="gameOverModal" class="modal hidden">
       <div class="modal-content">
         <h2>Game Over!</h2>
-        <p id="final-score-display">Your final score is: <span class="font-extrabold">0</span></p>
-        <button class="btn" onclick="location.reload()">
-          Restart Game
-        </button>
+        <p>Your final score: <span id="final-score-display">0</span></p>
+        <button class="btn">Restart Game</button>
       </div>
     </div>
 
     <div id="shopModal" class="modal hidden">
       <div class="modal-content">
-        <button class="close-button absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">&times;</button>
+        <button class="close-button">&times;</button>
         <h2>Galactic Shop</h2>
-        <div id="shop-items-container" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+        <p class="text-gray-300 mb-4">Spend your Galactic Coins on power-ups!</p>
+        <div id="shop-items-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           </div>
       </div>
     </div>
 
     <div id="aiAssistantModal" class="modal hidden">
       <div class="modal-content">
-        <button class="close-button absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">&times;</button>
+        <button class="close-button">&times;</button>
         <h2>AI Assistant Solution</h2>
-        <div id="ai-loading-indicator" class="text-center text-blue-400 mb-4">
-          <i class="fas fa-spinner fa-spin text-4xl"></i>
-          <p class="mt-2">Generating solution...</p>
+        <div id="ai-loading-indicator" class="flex justify-center items-center py-4">
+          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+          <p class="ml-3 text-purple-300">Generating solution...</p>
         </div>
-        <div id="ai-solution-content" class="text-left text-lg text-gray-200 overflow-y-auto max-h-96 custom-scrollbar">
+        <div id="ai-solution-content" class="text-left text-gray-200 custom-scrollbar overflow-y-auto max-h-96 mt-4">
           </div>
-        <button class="btn mt-6" onclick="closeAIAssistantModal()">
-          Continue Game
-        </button>
       </div>
     </div>
 
-    <footer class="mt-auto">
-        &copy; 2025 Galactic Calculus. All rights reserved to Mouad Maamma.
-    </footer>
   </body>
 </html>
