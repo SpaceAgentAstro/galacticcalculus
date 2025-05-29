@@ -6,51 +6,55 @@
     <meta name="description" content="Sign Up for Galactic Calculus">
     <title>Sign Up - Galactic Calculus</title>
     <link rel="stylesheet" href="styles.css">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        /* No inline styles needed here, as fonts are handled by styles.css and Tailwind */
-    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <script src="script.js" defer></script>
 </head>
-<body class="min-h-screen flex flex-col items-center justify-center p-4">
-    <nav id="navbar-main" class="w-full max-w-6xl mx-auto mb-8 md:mb-16">
-      <a href="index.html" class="navbar-brand">
-        <img src="favicon.ico" alt="Brand Logo" class="favicon">
-        <span class="brand-title">GALACTIC CALCULUS</span>
-      </a>
-      <ul id="auth-links" class="flex space-x-4">
-        <li><a href="login.html">Login</a></li>
-        <li><a href="signup.html">Sign Up</a></li>
-      </ul>
+<body>
+    <nav id="navbar-main">
+        <a href="index.html" class="navbar-brand">
+            <img src="favicon.ico" alt="Brand Logo" class="favicon">
+            <span class="brand-title">GALACTIC CALCULUS</span>
+        </a>
+        <ul id="auth-links"></ul>
     </nav>
 
-    <div class="container flex flex-col items-center justify-center space-y-8">
-        <h1>
-            <i class="fas fa-user-plus"></i> Sign Up
-        </h1>
+    <div class="container">
+        <h1><i class="fas fa-user-plus"></i> Sign Up</h1>
         <form id="signup-form" class="form-container" onsubmit="return validateSignupForm()">
             <div class="form-group">
                 <label for="username">Username:</label>
-                <input type="text" id="username" name="username" required />
+                <input type="text" id="username" name="username" required>
             </div>
             <div class="form-group">
                 <label for="email">Email:</label>
-                <input type="email" id="email" name="email" required />
+                <input type="email" id="email" name="email" required>
             </div>
             <div class="form-group">
                 <label for="password">Password:</label>
-                <input type="password" id="password" name="password" required />
+                <input type="password" id="password" name="password" required>
             </div>
             <button type="submit" class="btn">
                 <i class="fas fa-user-plus"></i> Register
             </button>
         </form>
-        <p>Already have an account? <a href="login.html">Log In</a></p>
-    </div>
 
-    <footer class="mt-auto py-4 text-gray-400 text-sm text-center w-full">
-        &copy; 2025 Galactic Calculus. All rights reserved to Mouad Maamma.
-    </footer>
+        <div class="social-login-options mt-8">
+            <p class="text-gray-300 mb-4">Or sign up with:</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button class="btn social-btn bg-red-600 hover:bg-red-700" onclick="alert('Google signup not yet implemented via Firebase SDK. This would typically trigger a Google sign-up pop-up.')">
+                    <i class="fab fa-google mr-2"></i> Google
+                </button>
+                <button class="btn social-btn bg-gray-800 hover:bg-gray-900" onclick="alert('Apple signup not yet implemented via Firebase SDK. This would typically trigger an Apple sign-up pop-up.')">
+                    <i class="fab fa-apple mr-2"></i> Apple
+                </button>
+                <button class="btn social-btn bg-gray-700 hover:bg-gray-800" onclick="alert('GitHub signup not yet implemented via Firebase SDK. This would typically trigger a GitHub sign-up pop-up.')">
+                    <i class="fab fa-github mr-2"></i> GitHub
+                </button>
+                <button class="btn social-btn bg-blue-700 hover:bg-blue-800" onclick="alert('Microsoft signup not yet implemented via Firebase SDK. This would typically trigger a Microsoft sign-up pop-up.')">
+                    <i class="fab fa-microsoft mr-2"></i> Microsoft
+                </button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
