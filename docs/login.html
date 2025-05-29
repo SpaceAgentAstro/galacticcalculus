@@ -6,34 +6,47 @@
     <meta name="description" content="Log In to Galactic Calculus">
     <title>Log In - Galactic Calculus</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* No inline styles needed here, as fonts are handled by styles.css and Tailwind */
+    </style>
     <script src="script.js" defer></script>
 </head>
-<body>
-    <!-- Navbar -->
-    <nav id="navbar-main">
-        <a href="index.html" class="navbar-brand">
-            <img src="favicon.ico" alt="Brand Logo" class="favicon">
-            <span class="brand-title">GALACTIC CALCULUS</span>
-        </a>
-        <ul id="auth-links"></ul>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+    <nav id="navbar-main" class="w-full max-w-6xl mx-auto mb-8 md:mb-16">
+      <a href="index.html" class="navbar-brand">
+        <img src="favicon.ico" alt="Brand Logo" class="favicon">
+        <span class="brand-title">GALACTIC CALCULUS</span>
+      </a>
+      <ul id="auth-links" class="flex space-x-4">
+        <li><a href="login.html">Login</a></li>
+        <li><a href="signup.html">Sign Up</a></li>
+      </ul>
     </nav>
 
-    <!-- Login Form -->
-    <div class="container">
-        <h1><i class="fas fa-sign-in-alt"></i> Log In</h1>
+    <div class="container flex flex-col items-center justify-center space-y-8">
+        <h1>
+            <i class="fas fa-sign-in-alt"></i> Log In
+        </h1>
         <form id="login-form" class="form-container" onsubmit="return validateLoginForm()">
             <div class="form-group">
                 <label for="email">Email:</label>
-                <input type="email" id="email" name="email" required>
+                <input type="email" id="email" name="email" required />
             </div>
             <div class="form-group">
                 <label for="password">Password:</label>
-                <input type="password" id="password" name="password" required>
+                <input type="password" id="password" name="password" required />
             </div>
             <button type="submit" class="btn">
                 <i class="fas fa-sign-in-alt"></i> Log In
             </button>
         </form>
+        <p>Don't have an account? <a href="signup.html">Sign Up</a></p>
     </div>
+
+    <footer class="mt-auto py-4 text-gray-400 text-sm text-center w-full">
+        &copy; 2025 Galactic Calculus. All rights reserved to Mouad Maamma.
+    </footer>
 </body>
 </html>
