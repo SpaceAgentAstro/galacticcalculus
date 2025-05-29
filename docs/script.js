@@ -85,7 +85,7 @@ const domElements = {
   timer: document.getElementById("timer-value"),
   galacticCoins: document.getElementById("galactic-coins-value"),
   question: document.getElementById("equation"),
-  answerInput: document.getElementById("answer"),
+  answerInput: document.getElementById("answer"), // This now refers to the math-field element
   submitButton: document.getElementById("submit"),
   gameOverModal: document.getElementById("gameOverModal"),
   finalScoreDisplay: document.getElementById("final-score-display"),
@@ -364,16 +364,22 @@ function generateProblem(type) {
  */
 function newProblem() {
   const problem = generateProblem();
-  if (domElements.question) {
+  // Set the value for the display math-field
+  if (domElements.question && domElements.question.querySelector('math-field')) {
+    domElements.question.querySelector('math-field').value = problem.question;
+  } else if (domElements.question) {
+    // If math-field doesn't exist, create it
     const mathField = document.createElement("math-field");
     mathField.value = problem.question;
     mathField.readOnly = true;
     mathField.virtualKeyboardMode = "off";
     mathField.showMenu = false;
-    domElements.question.innerHTML = "";
+    domElements.question.innerHTML = ""; // Clear existing content
     domElements.question.appendChild(mathField);
-    console.log("New Problem:", problem.question);
   }
+  console.log("New Problem:", problem.question);
+
+  // Clear the input math-field
   if (domElements.answerInput) {
     domElements.answerInput.value = "";
     domElements.answerInput.classList.remove("correct-answer-feedback", "incorrect-answer-feedback");
@@ -397,6 +403,7 @@ function displayProblem() {
 function validateAnswer() {
   if (!gameState.currentProblem || !domElements.answerInput) return;
 
+  // Get the value from the MathLive input field
   const userAnswer = domElements.answerInput.value.trim();
   const correctAnswer = gameState.currentProblem.answer.trim().replace(/\s/g, '').replace(/\+C/g, '');
   const cleanedUserAnswer = userAnswer.trim().replace(/\s/g, '').replace(/\+C/g, '');
@@ -425,6 +432,7 @@ function handleCorrectAnswer() {
   setTimeout(() => {
     if (domElements.answerInput) {
       domElements.answerInput.classList.remove("correct-answer-feedback");
+      domElements.answerInput.value = ""; // Clear input after feedback
     }
     updateScoreDisplay();
     displayProblem();
@@ -459,6 +467,7 @@ async function handleIncorrectAnswer() {
   setTimeout(() => {
     if (domElements.answerInput) {
       domElements.answerInput.classList.remove("incorrect-answer-feedback");
+      domElements.answerInput.value = ""; // Clear input after feedback
     }
     updateScoreDisplay();
     if (gameState.lives <= 0) {
@@ -522,7 +531,7 @@ function endGame() {
   clearInterval(gameState.timerInterval);
   const finalScore = gameState.score;
   if (domElements.finalScoreDisplay) {
-    domElements.finalScoreDisplay.querySelector('span').textContent = finalScore;
+    domElements.finalScoreDisplay.textContent = finalScore; // Updated to directly set textContent
   }
   if (domElements.gameOverModal) {
     domElements.gameOverModal.classList.remove("hidden");
@@ -795,6 +804,14 @@ onAuthStateChanged(auth, async (user) => {
     if (window.location.pathname.includes('game.html')) {
         // Only start if timer is not already running (prevents multiple starts on page load)
         if (!gameState.timerInterval) {
+            // Initialize the MathLive display field for the first question
+            if (domElements.question && !domElements.question.querySelector('math-field')) {
+                const mathFieldDisplay = document.createElement("math-field");
+                mathFieldDisplay.readOnly = true;
+                mathFieldDisplay.virtualKeyboardMode = "off";
+                mathFieldDisplay.showMenu = false;
+                domElements.question.appendChild(mathFieldDisplay);
+            }
             startTimer();
             displayProblem();
         }
@@ -1097,6 +1114,14 @@ async function generateAISolution(problem) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
+
+    if (!response.ok) {
+        // Log the full response status and text for debugging
+        const errorText = await response.text();
+        console.error(`AI solution generation failed: HTTP Status ${response.status} - ${response.statusText}`, errorText);
+        return `$$Error: API call failed. Status: ${response.status} ${response.statusText}. Please check your console for details and ensure your API key is valid.$$`;
+    }
+
     const result = await response.json();
     if (result.candidates && result.candidates.length > 0 &&
         result.candidates[0].content && result.candidates[0].content.parts &&
@@ -1104,11 +1129,11 @@ async function generateAISolution(problem) {
       return result.candidates[0].content.parts[0].text;
     } else {
       console.error("AI solution generation failed: Unexpected response structure", result);
-      return "$$Error: Could not generate solution. Please try again.$$";
+      return "$$Error: Could not generate solution. Unexpected API response. Please try again.$$";
     }
   } catch (error) {
     console.error("Error calling Gemini API for solution:", error);
-    return "$$Error: Failed to connect to AI assistant. Check your network.$$";
+    return `$$Error: Failed to connect to AI assistant. Check your network or API key. Details: ${error.message}$$`;
   }
 }
 
