@@ -1,122 +1,93 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Calculus Math Game - Quiz">
-    <title>Galactic Calculus - Quiz</title>
-    <link rel="stylesheet" href="styles.css">
-    <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
-    <link rel="stylesheet" href="https://unpkg.com/mathlive/dist/mathlive.min.css">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Galactic Calculus - Game</title>
+    <link rel="stylesheet" href="styles.css" />
     <script src="https://unpkg.com/mathlive/dist/mathlive.min.js"></script>
-</head>
-<body>
-    <!-- Navbar -->
-    <header id="navbar-main" class="navbar">
-        <a href="index.html" class="navbar-brand">
-            <img src="favicon.ico" alt="Brand Logo" class="favicon">
-            <span class="brand-title">GALACTIC CALCULUS</span>
-        </a>
-    </header>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        /* No inline styles needed here, as fonts are handled by styles.css and Tailwind */
+        /* Custom styling for MathLive math-field is now in styles.css */
+        /* Style for the answer input is now in styles.css */
+    </style>
+    <script src="script.js" defer></script>
+  </head>
+  <body class="min-h-screen flex flex-col items-center justify-center p-4">
+    <nav id="navbar-main" class="w-full max-w-6xl mx-auto mb-8 md:mb-16">
+      <a href="index.html" class="navbar-brand">
+        <img src="favicon.ico" alt="Brand Logo" class="favicon" />
+        <span class="brand-title">GALACTIC CALCULUS</span>
+      </a>
+      <ul id="auth-links" class="flex space-x-4">
+        <li><a href="login.html">Login</a></li>
+        <li><a href="signup.html">Sign Up</a></li>
+      </ul>
+    </nav>
 
-    <main id="game" class="container">
-        <h1 class="title">
-            <i class="fas fa-rocket"></i> Galactic Calculus
-        </h1>
+    <div class="container flex flex-col items-center justify-center space-y-8">
+      <div class="game-stats">
+        <div id="score-value" class="stat"><i class="fas fa-star"></i> Score: 0</div>
+        <div id="high-score-value" class="stat"><i class="fas fa-trophy"></i> High Score: 0</div>
+        <div id="lives-value" class="stat"><i class="fas fa-heart"></i> Lives: 10</div>
+        <div id="timer-value" class="stat"><i class="fas fa-clock"></i> Time: 120</div>
+        <div id="galactic-coins-value" class="stat"><i class="fas fa-coins"></i> Coins: 0</div> </div>
 
-        <!-- Game Stats Section -->
-        <section class="game-stats">
-            <div id="score" class="stat">
-                <i class="fas fa-star"></i> Score: <span id="score-value">0</span>
-            </div>
-            <div id="highScore" class="stat">
-                <i class="fas fa-trophy"></i> High Score: <span id="high-score-value">0</span>
-            </div>
-            <div id="lives" class="stat">
-                <i class="fas fa-heart"></i> Lives: <span id="lives-value">10</span>
-            </div>
-            <div id="level" class="stat">
-                <i class="fas fa-layer-group"></i> Level: <span id="level-value">1</span>
-            </div>
-            <div id="timer" class="stat">
-                <i class="fas fa-clock"></i> Time: <span id="timer-value">60</span>
-            </div>
-        </section>
+      <div id="equation" class="problem-section">
+        </div>
 
-        <!-- Power-Ups Section -->
-        <section class="powerups">
-            <h3>Power-Ups</h3>
-            <button id="skip-button" class="btn powerup">
-                <i class="fas fa-forward"></i> Skip (<span id="skip-count">1</span>)
-            </button>
-            <button id="double-score-button" class="btn powerup">
-                <i class="fas fa-times"></i> Double Score (<span id="double-score-count">0</span>)
-            </button>
-        </section>
+      <div class="input-section flex flex-col md:flex-row">
+        <input type="text" id="answer" placeholder="Your answer here" />
+        <button id="submit">
+          Submit
+        </button>
+      </div>
 
-        <!-- Problem Display -->
-        <section id="problem-display" class="problem-section">
-            <div id="equation" class="problem-display"></div>
-        </section>
+      <div class="powerups">
+        <button id="skip-button" class="powerup">Skip (0)</button>
+        <button id="double-score-button" class="powerup">Double Score (0)</button>
+        <button id="extra-time-button" class="powerup">Extra Time (0)</button>
+        <button id="shop-button" class="powerup bg-yellow-600 hover:bg-yellow-700">
+          <i class="fas fa-store"></i> Shop
+        </button> </div>
 
-        <!-- Input Section with MathLive -->
-        <section class="input-section">
-            <math-field id="answer" placeholder="Type your answer here" autocomplete="off" spellcheck="false"></math-field>
-            <button id="submit" class="btn primary">
-                <i class="fas fa-paper-plane"></i> Submit
-            </button>
-        </section>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8 w-full">
+        <div id="stats" class="detailed-stats">
+          </div>
+        <div id="milestone-history" class="milestone-history">
+          <h3 class="text-blue-300 mb-4">Milestone History</h3>
+          </div>
+      </div>
 
-        <!-- Game Stats -->
-        <section class="detailed-stats">
-            <h3>Detailed Stats</h3>
-            <p>Total Questions: <span id="total-questions">0</span></p>
-            <p>Correct Answers: <span id="correct-answers">0</span></p>
-            <p>Incorrect Answers: <span id="incorrect-answers">0</span></p>
-        </section>
-
-<!-- Leaderboard -->
-<section id="leaderboard" class="leaderboard">
-    <h3>Leaderboard</h3>
-    <div id="leaderboard-list">
-        <table>
-            <thead>
-                <tr>
-                    <th>Rank</th>
-                    <th>Player</th>
-                    <th>Score</th>
-                </tr>
-            </thead>
-            <tbody id="leaderboard-table-body"></tbody>
-        </table>
+      <div id="leaderboard" class="leaderboard">
+        <h3 class="text-blue-300 mb-4">Leaderboard</h3>
+        </div>
     </div>
-</section>
 
-        <!-- Audio Elements -->
-        <audio id="wrongSound" src="assets/sounds/wrong-answer.mp3" preload="auto"></audio>
-        <audio id="correctSound" src="assets/sounds/correct-answer.mp3" preload="auto"></audio>
-    </main>
-
-    <!-- Modal for Game Over -->
     <div id="gameOverModal" class="modal hidden">
-        <div class="modal-content">
-            <h2>Game Over!</h2>
-            <p>Your final score: <span id="final-score"></span></p>
-            <button class="btn secondary" id="restart-game">Restart</button>
-        </div>
+      <div class="modal-content">
+        <h2>Game Over!</h2>
+        <p id="final-score-display">Your final score is: <span class="font-extrabold">0</span></p>
+        <button class="btn" onclick="location.reload()">
+          Restart Game
+        </button>
+      </div>
     </div>
 
-    <!-- Modal for Achievements -->
-    <div id="achievementModal" class="modal hidden">
-        <div class="modal-content">
-            <h2>Achievements Unlocked!</h2>
-            <ul id="achievement-list"></ul>
-            <button class="btn secondary" id="close-achievements">Close</button>
-        </div>
+    <div id="shopModal" class="modal hidden">
+      <div class="modal-content">
+        <button class="close-button absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">&times;</button>
+        <h2>Galactic Shop</h2>
+        <div id="shop-items-container" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+          </div>
+      </div>
     </div>
 
-    <script src="script.js"></script>
-</body>
+    <footer class="mt-auto">
+        &copy; 2025 Galactic Calculus. All rights reserved to Mouad Maamma.
+    </footer>
+  </body>
 </html>
