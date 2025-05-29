@@ -3,13 +3,27 @@ console.log("Script loaded.");
 // Firebase Imports (MUST be at the top for module loading)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword,
-         GoogleAuthProvider, GithubAuthProvider, OAuthProvider // Apple and Microsoft providers
+         GoogleAuthProvider, GithubAuthProvider, OAuthProvider, signInWithPopup // Apple and Microsoft providers, and signInWithPopup
        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore, doc, setDoc, getDoc, collection, query, orderBy, limit, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 // Firebase Initialization
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+let firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+
+// Ensure projectId and other essential config properties are present for Firebase initialization
+if (!firebaseConfig.projectId) {
+    console.warn("Firebase projectId not found in __firebase_config. Using placeholder values. Please ensure Firebase is properly configured in your environment.");
+    firebaseConfig = {
+        apiKey: firebaseConfig.apiKey || "YOUR_FIREBASE_API_KEY", // Replace with your actual API Key
+        authDomain: firebaseConfig.authDomain || "YOUR_FIREBASE_AUTH_DOMAIN", // Replace with your actual Auth Domain
+        projectId: "YOUR_FIREBASE_PROJECT_ID", // Replace with your actual Project ID
+        storageBucket: firebaseConfig.storageBucket || "YOUR_FIREBASE_STORAGE_BUCKET", // Replace with your actual Storage Bucket
+        messagingSenderId: firebaseConfig.messagingSenderId || "YOUR_FIREBASE_MESSAGING_SENDER_ID", // Replace with your actual Messaging Sender ID
+        appId: firebaseConfig.appId || "YOUR_FIREBASE_APP_ID" // Replace with your actual App ID
+    };
+}
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
@@ -1231,22 +1245,12 @@ async function handleSocialSignIn(provider) {
   }
 }
 
-// Social Login functions
-function signInWithGoogle() {
-  handleSocialSignIn(googleProvider);
-}
+// Social Login functions - exposed globally for HTML onclick
+window.signInWithGoogle = () => handleSocialSignIn(googleProvider);
+window.signInWithApple = () => handleSocialSignIn(appleProvider);
+window.signInWithGitHub = () => handleSocialSignIn(githubProvider);
+window.signInWithMicrosoft = () => handleSocialSignIn(microsoftProvider);
 
-function signInWithApple() {
-  handleSocialSignIn(appleProvider);
-}
-
-function signInWithGitHub() {
-  handleSocialSignIn(githubProvider);
-}
-
-function signInWithMicrosoft() {
-  handleSocialSignIn(microsoftProvider);
-}
 
 /**
  * Handles user logout.
