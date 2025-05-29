@@ -86,6 +86,9 @@ const domElements = {
   profileHighScore: document.getElementById("profile-high-score"),
   profileGamesPlayed: document.getElementById("profile-games-played"),
   profileUserId: document.getElementById("profile-user-id"), // New: for displaying user ID
+  aiAssistantModal: document.getElementById("aiAssistantModal"), // New: AI Assistant modal
+  aiSolutionContent: document.getElementById("ai-solution-content"), // New: AI Solution content area
+  aiLoadingIndicator: document.getElementById("ai-loading-indicator") // New: AI Loading indicator
 };
 
 // Audio for feedback (ensure these paths are correct or provide placeholder sounds)
@@ -411,13 +414,26 @@ function handleCorrectAnswer() {
  * Handles an incorrect answer: decrements lives, plays sound,
  * updates stats, and checks for game over.
  */
-function handleIncorrectAnswer() {
+async function handleIncorrectAnswer() {
   gameState.lives--;
   wrongSound.play().catch(e => console.error("Error playing sound:", e));
   gameState.stats.incorrectAnswers++;
   if (domElements.answerInput) {
     domElements.answerInput.classList.add("incorrect-answer-feedback");
   }
+
+  // Show AI Assistant modal
+  if (gameState.currentProblem) {
+    showAIAssistantModal(); // Show loading state first
+    const solution = await generateAISolution(gameState.currentProblem);
+    domElements.aiSolutionContent.innerHTML = solution; // Update with actual solution
+    // Ensure MathLive renders the LaTeX
+    if (typeof MathLive !== 'undefined') {
+      MathLive.renderMathInElement(domElements.aiSolutionContent);
+    }
+    domElements.aiLoadingIndicator.classList.add('hidden'); // Hide loading indicator
+  }
+
   setTimeout(() => {
     if (domElements.answerInput) {
       domElements.answerInput.classList.remove("incorrect-answer-feedback");
@@ -425,6 +441,10 @@ function handleIncorrectAnswer() {
     updateScoreDisplay();
     if (gameState.lives <= 0) {
       endGame();
+    } else {
+      // If game is not over, display next problem after a short delay
+      // The AI modal will remain open until closed by user
+      // displayProblem(); // This will be called after closing AI modal
     }
   }, 500);
   if (currentUserId) saveUserData(); // Persist stats
@@ -560,7 +580,17 @@ async function loadUserData() {
             gameState.achievements = [];
             gameState.dailyStreak = 0;
             gameState.lastPlayed = null;
-            await saveUserData(); // Save initial profile
+            await setDoc(userDocRef, { // Use setDoc to create the document
+                username: gameState.username,
+                email: auth.currentUser.email || null, // Capture email if available
+                highScore: gameState.highScore,
+                galacticCoins: gameState.galacticCoins,
+                powerUps: gameState.powerUps,
+                stats: gameState.stats,
+                achievements: gameState.achievements,
+                dailyStreak: gameState.dailyStreak,
+                lastPlayed: gameState.lastPlayed,
+            });
             console.log("Created default user profile in Firestore.");
         }
     } catch (e) {
@@ -999,6 +1029,69 @@ function showPurchaseNotification(message, type) {
 }
 
 /**
+ * Opens the AI Assistant modal and displays the solution.
+ * Shows a loading indicator while the solution is being fetched.
+ */
+function showAIAssistantModal() {
+  if (domElements.aiAssistantModal) {
+    domElements.aiAssistantModal.classList.remove("hidden");
+    domElements.aiAssistantModal.classList.add("show");
+    domElements.aiSolutionContent.innerHTML = ''; // Clear previous content
+    domElements.aiLoadingIndicator.classList.remove('hidden'); // Show loading indicator
+  }
+}
+
+/**
+ * Closes the AI Assistant modal.
+ */
+function closeAIAssistantModal() {
+  if (domElements.aiAssistantModal) {
+    domElements.aiAssistantModal.classList.remove("show");
+    domElements.aiAssistantModal.classList.add("hidden");
+    displayProblem(); // Display next problem after closing AI modal
+  }
+}
+
+/**
+ * Generates a step-by-step solution for the given problem using the Gemini API.
+ * @param {object} problem - The problem object containing question and answer.
+ * @returns {Promise<string>} A promise that resolves to the LaTeX formatted solution.
+ */
+async function generateAISolution(problem) {
+  const prompt = `Provide a step-by-step solution for the following calculus problem.
+  The problem is: ${problem.question}
+  The correct answer is: ${problem.answer}
+  Please format the solution using LaTeX. Use $$ for display math and $ for inline math.`;
+
+  let chatHistory = [];
+  chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+  const payload = { contents: chatHistory };
+  const apiKey = ""; // Leave as-is, Canvas will provide it at runtime.
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (result.candidates && result.candidates.length > 0 &&
+        result.candidates[0].content && result.candidates[0].content.parts &&
+        result.candidates[0].content.parts.length > 0) {
+      return result.candidates[0].content.parts[0].text;
+    } else {
+      console.error("AI solution generation failed: Unexpected response structure", result);
+      return "$$Error: Could not generate solution. Please try again.$$";
+    }
+  } catch (error) {
+    console.error("Error calling Gemini API for solution:", error);
+    return "$$Error: Failed to connect to AI assistant. Check your network.$$";
+  }
+}
+
+
+/**
  * Updates the navigation links based on authentication status.
  */
 function initializeAuthLinks() {
@@ -1138,6 +1231,12 @@ if (domElements.shopModal) {
   const closeShopBtn = domElements.shopModal.querySelector('.close-button');
   if (closeShopBtn) {
     closeShopBtn.addEventListener('click', closeShopModal);
+  }
+}
+if (domElements.aiAssistantModal) { // New: AI Assistant modal close button
+  const closeAIAssistantBtn = domElements.aiAssistantModal.querySelector('.close-button');
+  if (closeAIAssistantBtn) {
+    closeAIAssistantBtn.addEventListener('click', closeAIAssistantModal);
   }
 }
 
