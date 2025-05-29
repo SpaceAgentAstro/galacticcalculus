@@ -14,7 +14,7 @@
         /* Custom styling for MathLive math-field is now in styles.css */
         /* Style for the answer input is now in styles.css */
     </style>
-    <script src="script.js" defer></script>
+    <script type="module" src="script.js" defer></script>
   </head>
   <body class="min-h-screen flex flex-col items-center justify-center p-4">
     <nav id="navbar-main" class="w-full max-w-6xl mx-auto mb-8 md:mb-16">
@@ -83,6 +83,22 @@
         <h2>Galactic Shop</h2>
         <div id="shop-items-container" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
           </div>
+      </div>
+    </div>
+
+    <div id="aiAssistantModal" class="modal hidden">
+      <div class="modal-content">
+        <button class="close-button absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">&times;</button>
+        <h2>AI Assistant Solution</h2>
+        <div id="ai-loading-indicator" class="text-center text-blue-400 mb-4">
+          <i class="fas fa-spinner fa-spin text-4xl"></i>
+          <p class="mt-2">Generating solution...</p>
+        </div>
+        <div id="ai-solution-content" class="text-left text-lg text-gray-200 overflow-y-auto max-h-96 custom-scrollbar">
+          </div>
+        <button class="btn mt-6" onclick="closeAIAssistantModal()">
+          Continue Game
+        </button>
       </div>
     </div>
 
