@@ -1,24 +1,56 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title> Galactic Calculus </title>
-    <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-    <!-- Navbar -->
-    <nav id="navbar-main">
-        <a href="index.html" class="navbar-brand">
-            <img src="favicon.ico" alt="Brand Logo" class="favicon">
-            <span class="brand-title">GALACTIC CALCULUS</span>
-        </a>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Galactic Calculus</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Ensure Inter font is used where Tailwind classes apply, otherwise Poppins from styles.css */
+        body {
+            font-family: 'Inter', sans-serif; /* Tailwind will use this for its classes */
+        }
+        /* Override for specific elements if needed to maintain Poppins */
+        h1, h3, .brand-title {
+            font-family: 'Poppins', sans-serif;
+        }
+    </style>
+  </head>
+  <body class="bg-gray-900 text-white min-h-screen flex flex-col items-center justify-center p-4">
+    <nav id="navbar-main" class="w-full max-w-6xl mx-auto mb-8 md:mb-16">
+      <a href="index.html" class="navbar-brand">
+        <img src="favicon.ico" alt="Brand Logo" class="favicon" />
+        <span class="brand-title">GALACTIC CALCULUS</span>
+      </a>
+      <ul id="auth-links" class="flex space-x-4">
+        <li><a href="login.html">Login</a></li>
+        <li><a href="signup.html">Sign Up</a></li>
+      </ul>
     </nav>
 
-    <h1 class=""> Galactic Calculus </h1>
+    <div class="container flex flex-col items-center justify-center space-y-8">
+      <h1 class="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-600 animate-pulse">
+        Galactic Calculus
+      </h1>
+      <p class="text-lg md:text-xl text-gray-300 text-center max-w-md">
+        Embark on an interstellar journey to master the universe of differentiation and integration!
+      </p>
+      <button id="startGameButtonIndex" class="start-game-btn">
+        Start Game
+      </button>
+    </div>
 
-    <button class="start-game-btn" onclick="location.href='options.html'">Start Game</button>
+    <footer class="mt-auto py-4 text-gray-400 text-sm text-center w-full">
+        &copy; 2025 Galactic Calculus. All rights reserved to Mouad Maamma.
+    </footer>
 
-    <script src="script.js"></script>
-</body>
+    <script>
+        // Attach event listener for the "Start Game" button
+        document.getElementById('startGameButtonIndex').addEventListener('click', () => {
+            window.location.href = 'options.html';
+        });
+    </script>
+  </body>
 </html>
