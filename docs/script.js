@@ -1,46 +1,51 @@
 console.log("Script loaded.");
 
-// Ensure DOM is fully loaded before initializing the game
-document.addEventListener("DOMContentLoaded", () => {
-  console.log("DOM fully loaded. Initializing game...");
-  initializeGame();
-  // Initialize auth links on all pages that use the navbar
-  initializeAuthLinks();
-});
+// Firebase Imports (MUST be at the top for module loading)
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFirestore, doc, setDoc, getDoc, collection, query, orderBy, limit, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-/**
- * Global game state object.
- * Manages all dynamic data related to the game session,
- * including scores, lives, timer, current problem, user settings,
- * achievements, leaderboard, power-ups, and game statistics.
- */
+// Firebase Initialization
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+// Global Firebase variables for user and auth state
+let currentUserId = null;
+let isAuthReady = false; // Flag to ensure Firestore operations happen after auth is ready
+
+// Game State
 const gameState = {
   score: 0,
-  highScore: parseInt(localStorage.getItem("highScore")) || 0, // Load high score from local storage
+  highScore: 0, // Will be loaded from Firestore or local storage
   lives: 10,
-  timer: 120, // Default game timer in seconds
-  timerInterval: null, // Stores the interval ID for the game timer
-  isPaused: false, // Flag to indicate if the game is paused
-  currentProblem: null, // Stores the current math problem object
-  achievements: JSON.parse(localStorage.getItem("achievements")) || [], // User achievements
-  dailyStreak: parseInt(localStorage.getItem("dailyStreak")) || 0, // Daily login streak
-  lastPlayed: localStorage.getItem("lastPlayed") || null, // Last played date for streak calculation
-  galacticCoins: parseInt(localStorage.getItem("galacticCoins")) || 0, // New: In-game currency
+  timer: 120,
+  timerInterval: null,
+  isPaused: false,
+  currentProblem: null,
+  achievements: [], // Will be loaded from Firestore or local storage
+  dailyStreak: 0, // Will be loaded from Firestore or local storage
+  lastPlayed: null, // Will be loaded from Firestore or local storage
+  galacticCoins: 0, // Will be loaded from Firestore or local storage
+  username: "Guest", // Default username, will be updated from Firestore
   settings:
     JSON.parse(localStorage.getItem("gameSettings")) || {
-      difficulty: 2, // Numeric difficulty (1: easy, 2: medium, 3: hard, etc.)
-      questionTypes: ["diff", "antiderivative"], // Types of questions to generate
-      timer: 120, // Initial timer setting
+      difficulty: 2,
+      diff: true, // Default to differentiation problems
+      int: false, // Default to no integration problems
+      timer: 120,
     },
-  leaderboard: JSON.parse(localStorage.getItem("leaderboard")) || [], // Top scores
-  powerUps: { skip: 0, doubleScore: 0, extraTime: 0 }, // Available power-ups
-  stats: { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 }, // In-game statistics
+  leaderboard: [], // Will be loaded from Firestore
+  powerUps: { skip: 0, doubleScore: 0, extraTime: 0 }, // Will be loaded from Firestore or local storage
+  stats: { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 }, // Will be loaded from Firestore or local storage
   milestones: {
-    scoreMilestones: { 50: "skip", 100: "doubleScore", 200: "extraTime" }, // Score thresholds for power-ups
-    streakMilestones: { 5: "doubleScore", 10: "extraTime", 15: "skip" }, // Streak thresholds for power-ups
+    scoreMilestones: { 50: "skip", 100: "doubleScore", 200: "extraTime" },
+    streakMilestones: { 5: "doubleScore", 10: "extraTime", 15: "skip" },
   },
-  milestoneHistory: [], // Tracks unlocked milestones during the current session
-  shopItems: { // Define shop items and their costs
+  milestoneHistory: [],
+  shopItems: {
     skip: { cost: 50, description: "Skip the current problem" },
     doubleScore: { cost: 100, description: "Double score for next 3 problems" },
     extraTime: { cost: 75, description: "Add 30 seconds to the timer" },
@@ -56,23 +61,22 @@ const domElements = {
   highScore: document.getElementById("high-score-value"),
   lives: document.getElementById("lives-value"),
   timer: document.getElementById("timer-value"),
-  galacticCoins: document.getElementById("galactic-coins-value"), // New: Galactic Coins display
-  question: document.getElementById("equation"), // Element to display the math problem
-  answerInput: document.getElementById("answer"), // Input field for user's answer
-  submitButton: document.getElementById("submit"), // Button to submit answer
-  gameOverModal: document.getElementById("gameOverModal"), // Game Over modal
-  finalScoreDisplay: document.getElementById("final-score-display"), // Display final score in modal
-  navbar: document.getElementById("navbar-brand"), // Navbar brand link (though not directly used for updates here)
-  leaderboard: document.getElementById("leaderboard"), // Leaderboard display area
-  skipButton: document.getElementById("skip-button"), // Skip power-up button
-  doubleScoreButton: document.getElementById("double-score-button"), // Double Score power-up button
-  extraTimeButton: document.getElementById("extra-time-button"), // Extra Time power-up button
-  stats: document.getElementById("stats"), // Detailed game stats display area
-  milestoneHistory: document.getElementById("milestone-history"), // Milestone history display area
-  shopButton: document.getElementById("shop-button"), // New: Shop button
-  shopModal: document.getElementById("shopModal"), // New: Shop modal
-  shopItemsContainer: document.getElementById("shop-items-container"), // New: Container for shop items
-  // Auth related elements (placeholders for now)
+  galacticCoins: document.getElementById("galactic-coins-value"),
+  question: document.getElementById("equation"),
+  answerInput: document.getElementById("answer"),
+  submitButton: document.getElementById("submit"),
+  gameOverModal: document.getElementById("gameOverModal"),
+  finalScoreDisplay: document.getElementById("final-score-display"),
+  navbar: document.getElementById("navbar-brand"),
+  leaderboard: document.getElementById("leaderboard"),
+  skipButton: document.getElementById("skip-button"),
+  doubleScoreButton: document.getElementById("double-score-button"),
+  extraTimeButton: document.getElementById("extra-time-button"),
+  stats: document.getElementById("stats"),
+  milestoneHistory: document.getElementById("milestone-history"),
+  shopButton: document.getElementById("shop-button"),
+  shopModal: document.getElementById("shopModal"),
+  shopItemsContainer: document.getElementById("shop-items-container"),
   authLinks: document.getElementById("auth-links"),
   loginForm: document.getElementById("login-form"),
   signupForm: document.getElementById("signup-form"),
@@ -81,39 +85,37 @@ const domElements = {
   profileEmail: document.getElementById("profile-email"),
   profileHighScore: document.getElementById("profile-high-score"),
   profileGamesPlayed: document.getElementById("profile-games-played"),
+  profileUserId: document.getElementById("profile-user-id"), // New: for displaying user ID
 };
 
 // Audio for feedback (ensure these paths are correct or provide placeholder sounds)
-// These would typically be loaded from a 'sounds' directory.
-const correctSound = new Audio("sounds/correct.mp3"); // Placeholder for correct answer sound
-const wrongSound = new Audio("sounds/wrong.mp3");   // Placeholder for wrong answer sound
-const coinSound = new Audio("sounds/coin.mp3"); // New: Coin sound
-const purchaseSound = new Audio("sounds/purchase.mp3"); // New: Purchase sound
+const correctSound = new Audio("sounds/correct.mp3");
+const wrongSound = new Audio("sounds/wrong.mp3");
+const coinSound = new Audio("sounds/coin.mp3");
+const purchaseSound = new Audio("sounds/purchase.mp3");
 
 /**
  * Updates the displayed score, high score, lives, and galactic coins in the UI.
- * Also checks if the current score exceeds the high score and updates it in local storage.
  */
 function updateScoreDisplay() {
-  const { score, highScore, lives, galacticCoins } = gameState;
-  domElements.score.textContent = `Score: ${score}`;
-  domElements.lives.textContent = `Lives: ${lives}`;
-  domElements.galacticCoins.textContent = `Coins: ${galacticCoins}`; // Update coins display
-  if (score > highScore) {
-    gameState.highScore = score;
-    localStorage.setItem("highScore", score); // Persist high score
+  if (domElements.score) domElements.score.textContent = `Score: ${gameState.score}`;
+  if (domElements.lives) domElements.lives.textContent = `Lives: ${gameState.lives}`;
+  if (domElements.galacticCoins) domElements.galacticCoins.textContent = `Coins: ${gameState.galacticCoins}`;
+  if (gameState.score > gameState.highScore) {
+    gameState.highScore = gameState.score;
+    if (currentUserId) saveUserData(); // Persist new high score to Firestore
   }
-  domElements.highScore.textContent = `High Score: ${gameState.highScore}`;
-  checkMilestones(); // Check for any unlocked milestones after score update
+  if (domElements.highScore) domElements.highScore.textContent = `High Score: ${gameState.highScore}`;
+  checkMilestones();
 }
 
 /**
  * Updates the text content of power-up buttons to reflect current counts.
  */
 function updatePowerUpsDisplay() {
-  domElements.skipButton.textContent = `Skip (${gameState.powerUps.skip})`;
-  domElements.doubleScoreButton.textContent = `Double Score (${gameState.powerUps.doubleScore})`;
-  domElements.extraTimeButton.textContent = `Extra Time (${gameState.powerUps.extraTime})`;
+  if (domElements.skipButton) domElements.skipButton.textContent = `Skip (${gameState.powerUps.skip})`;
+  if (domElements.doubleScoreButton) domElements.doubleScoreButton.textContent = `Double Score (${gameState.powerUps.doubleScore})`;
+  if (domElements.extraTimeButton) domElements.extraTimeButton.textContent = `Extra Time (${gameState.powerUps.extraTime})`;
 }
 
 /**
@@ -121,12 +123,14 @@ function updatePowerUpsDisplay() {
  */
 function updateStatsDisplay() {
   const { totalQuestions, correctAnswers, incorrectAnswers } = gameState.stats;
-  domElements.stats.innerHTML = `
-    <h3 class="text-2xl font-semibold text-blue-300 mb-4">Game Statistics</h3>
-    <p><strong>Total Questions:</strong> ${totalQuestions}</p>
-    <p><strong>Correct Answers:</strong> ${correctAnswers}</p>
-    <p><strong>Incorrect Answers:</strong> ${incorrectAnswers}</p>
-  `;
+  if (domElements.stats) {
+    domElements.stats.innerHTML = `
+      <h3 class="text-2xl font-semibold text-blue-300 mb-4">Game Statistics</h3>
+      <p><strong>Total Questions:</strong> ${totalQuestions}</p>
+      <p><strong>Correct Answers:</strong> ${correctAnswers}</p>
+      <p><strong>Incorrect Answers:</strong> ${incorrectAnswers}</p>
+    `;
+  }
 }
 
 /**
@@ -135,17 +139,14 @@ function updateStatsDisplay() {
  */
 function updateScore(value) {
   gameState.score += value;
-  domElements.score.textContent = `Score: ${gameState.score}`;
-  checkMilestones(); // Check for milestones after score change
+  updateScoreDisplay();
+  checkMilestones();
 }
 
 /**
  * Checks if any score or streak milestones have been reached.
- * If a milestone is reached, it unlocks the associated power-up and removes the milestone
- * from the active list to prevent re-triggering.
  */
 function checkMilestones() {
-  // Score-based milestones
   Object.keys(gameState.milestones.scoreMilestones).forEach((milestone) => {
     const milestoneValue = parseInt(milestone);
     if (gameState.score >= milestoneValue && gameState.milestones.scoreMilestones[milestone]) {
@@ -155,7 +156,6 @@ function checkMilestones() {
     }
   });
 
-  // Streak-based milestones (currently tied to correctAnswers, could be a separate streak counter)
   Object.keys(gameState.milestones.streakMilestones).forEach((milestone) => {
     const milestoneValue = parseInt(milestone);
     if (gameState.stats.correctAnswers >= milestoneValue && gameState.milestones.streakMilestones[milestone]) {
@@ -168,9 +168,6 @@ function checkMilestones() {
 
 /**
  * Unlocks a specified power-up and records the milestone in history.
- * @param {number} value - The milestone value (score or streak).
- * @param {string} powerUp - The type of power-up unlocked (e.g., "skip", "doubleScore").
- * @param {string} type - The type of milestone ("score" or "streak").
  */
 function unlockMilestone(value, powerUp, type) {
   gameState.powerUps[powerUp]++;
@@ -178,13 +175,11 @@ function unlockMilestone(value, powerUp, type) {
   showMilestoneNotification(powerUp, type, value);
   updateMilestoneHistoryDisplay();
   updatePowerUpsDisplay();
+  if (currentUserId) saveUserData(); // Persist power-up changes
 }
 
 /**
  * Displays a temporary notification for an unlocked milestone.
- * @param {string} powerUp - The type of power-up gained.
- * @param {string} type - The type of milestone (score/streak).
- * @param {number} value - The milestone value.
  */
 function showMilestoneNotification(powerUp, type, value) {
   const notification = document.createElement("div");
@@ -195,20 +190,23 @@ function showMilestoneNotification(powerUp, type, value) {
       Gained 1 <em class="font-semibold">${powerUp.replace(/([A-Z])/g, ' $1').trim().toLowerCase()}</em> power-up!`;
   document.body.appendChild(notification);
 
-  const styleSheet = document.createElement("style");
-  styleSheet.type = "text/css";
-  styleSheet.innerText = `
-    @keyframes fadeInOut {
-      0% { opacity: 0; transform: translate(-50%, -50px); }
-      10% { opacity: 1; transform: translate(-50%, 0); }
-      90% { opacity: 1; transform: translate(-50%, 0); }
-      100% { opacity: 0; transform: translate(-50%, -50px); }
-    }
-    .animate-fadeInOut {
-      animation: fadeInOut 3s forwards;
-    }
-  `;
-  document.head.appendChild(styleSheet);
+  if (!document.getElementById('fadeInOutStyle')) {
+    const styleSheet = document.createElement("style");
+    styleSheet.id = 'fadeInOutStyle';
+    styleSheet.type = "text/css";
+    styleSheet.innerText = `
+      @keyframes fadeInOut {
+        0% { opacity: 0; transform: translate(-50%, -50px); }
+        10% { opacity: 1; transform: translate(-50%, 0); }
+        90% { opacity: 1; transform: translate(-50%, 0); }
+        100% { opacity: 0; transform: translate(-50%, -50px); }
+      }
+      .animate-fadeInOut {
+        animation: fadeInOut 3s forwards;
+      }
+    `;
+    document.head.appendChild(styleSheet);
+  }
 
   setTimeout(() => notification.remove(), 3000);
 }
@@ -217,27 +215,27 @@ function showMilestoneNotification(powerUp, type, value) {
  * Updates the display of the milestone history section.
  */
 function updateMilestoneHistoryDisplay() {
-  domElements.milestoneHistory.innerHTML = '<h3 class="text-2xl font-semibold text-blue-300 mb-4">Milestone History</h3>';
-  if (gameState.milestoneHistory.length === 0) {
-    domElements.milestoneHistory.innerHTML += '<p class="text-gray-400">No milestones unlocked yet.</p>';
-    return;
+  if (domElements.milestoneHistory) {
+    domElements.milestoneHistory.innerHTML = '<h3 class="text-2xl font-semibold text-blue-300 mb-4">Milestone History</h3>';
+    if (gameState.milestoneHistory.length === 0) {
+      domElements.milestoneHistory.innerHTML += '<p class="text-gray-400">No milestones unlocked yet.</p>';
+      return;
+    }
+    gameState.milestoneHistory.forEach(({ type, value, powerUp, timestamp }) => {
+      const historyItem = document.createElement("div");
+      historyItem.classList.add('py-2', 'border-b', 'border-gray-600', 'last:border-b-0');
+      historyItem.innerHTML = `
+        <span class="font-semibold">${type.charAt(0).toUpperCase() + type.slice(1)} Milestone</span> (${value}):
+        +1 <em class="font-medium text-purple-300">${powerUp.replace(/([A-Z])/g, ' $1').trim().toLowerCase()}</em>
+        <span class="text-gray-400 text-sm block">${new Date(timestamp).toLocaleString()}</span>
+      `;
+      domElements.milestoneHistory.appendChild(historyItem);
+    });
   }
-  gameState.milestoneHistory.forEach(({ type, value, powerUp, timestamp }) => {
-    const historyItem = document.createElement("div");
-    historyItem.classList.add('py-2', 'border-b', 'border-gray-600', 'last:border-b-0');
-    historyItem.innerHTML = `
-      <span class="font-semibold">${type.charAt(0).toUpperCase() + type.slice(1)} Milestone</span> (${value}):
-      +1 <em class="font-medium text-purple-300">${powerUp.replace(/([A-Z])/g, ' $1').trim().toLowerCase()}</em>
-      <span class="text-gray-400 text-sm block">${new Date(timestamp).toLocaleString()}</span>
-    `;
-    domElements.milestoneHistory.appendChild(historyItem);
-  });
 }
 
 /**
  * Handles the usage of a power-up.
- * Decrements the power-up count and applies its effect.
- * @param {string} type - The type of power-up to use ("skip", "doubleScore", "extraTime").
  */
 function usePowerUp(type) {
   if (gameState.powerUps[type] > 0) {
@@ -248,11 +246,11 @@ function usePowerUp(type) {
       gameState.timer += 30;
       updateTimer();
     } else if (type === "doubleScore") {
-      gameState.score += 20; // Example: adds a flat 20 points
+      gameState.score += 20;
       updateScoreDisplay();
     }
     updatePowerUpsDisplay();
-    // Persist power-up changes if needed, though usually handled by game end/save
+    if (currentUserId) saveUserData(); // Persist power-up changes
   } else {
     console.log(`No ${type} power-ups left!`);
     const noPowerUpMessage = document.createElement('div');
@@ -281,7 +279,7 @@ function startTimer() {
   clearInterval(gameState.timerInterval);
   gameState.timerInterval = setInterval(() => {
     gameState.timer--;
-    domElements.timer.textContent = `Time: ${gameState.timer}`;
+    updateTimer();
     if (gameState.timer <= 0) {
       endGame();
     }
@@ -289,10 +287,16 @@ function startTimer() {
 }
 
 /**
+ * Updates the timer display.
+ */
+function updateTimer() {
+  if (domElements.timer) {
+    domElements.timer.textContent = `Time: ${gameState.timer}`;
+  }
+}
+
+/**
  * Generates a random math problem based on selected question types and difficulty.
- * This is a placeholder and should be expanded with more complex problem generation logic.
- * @param {string} [type] - Specific type of problem to generate ("diff" or "antiderivative").
- * @returns {object} - An object containing the question (LaTeX string) and its answer.
  */
 function generateProblem(type) {
   const differentiationProblems = getDifferentiationProblems();
@@ -320,7 +324,7 @@ function generateProblem(type) {
 
   const selectedType = type || availableQuestionTypes[Math.floor(Math.random() * availableQuestionTypes.length)];
 
-  const problemSetForDifficulty = problemsByType[selectedType][currentDifficulty];
+  const problemSetForDifficulty = problemsByType[selectedType][currentDifficulty] || problemsByType[selectedType][1];
 
   if (!problemSetForDifficulty || problemSetForDifficulty.length === 0) {
     console.error(`No problems found for type: ${selectedType} and difficulty: ${currentDifficulty}. Generating a fallback problem.`);
@@ -330,25 +334,25 @@ function generateProblem(type) {
   return problemSetForDifficulty[Math.floor(Math.random() * problemSetForDifficulty.length)];
 }
 
-
 /**
  * Creates a new problem and displays it in the UI using MathLive.
- * Clears the answer input field.
- * @returns {object} The newly generated problem.
  */
 function newProblem() {
   const problem = generateProblem();
-  const mathField = document.createElement("math-field");
-  mathField.value = problem.question;
-  mathField.readOnly = true;
-  mathField.virtualKeyboardMode = "off";
-  mathField.showMenu = false;
-  domElements.question.innerHTML = "";
-  domElements.question.appendChild(mathField);
-  console.log("New Problem:", problem.question);
-  domElements.answerInput.value = "";
-  // Removed direct class manipulation here, as styles.css handles focus/error states
-  domElements.answerInput.classList.remove("correct-answer-feedback", "incorrect-answer-feedback");
+  if (domElements.question) {
+    const mathField = document.createElement("math-field");
+    mathField.value = problem.question;
+    mathField.readOnly = true;
+    mathField.virtualKeyboardMode = "off";
+    mathField.showMenu = false;
+    domElements.question.innerHTML = "";
+    domElements.question.appendChild(mathField);
+    console.log("New Problem:", problem.question);
+  }
+  if (domElements.answerInput) {
+    domElements.answerInput.value = "";
+    domElements.answerInput.classList.remove("correct-answer-feedback", "incorrect-answer-feedback");
+  }
   return problem;
 }
 
@@ -359,17 +363,18 @@ function displayProblem() {
   gameState.currentProblem = newProblem();
   gameState.stats.totalQuestions++;
   updateStatsDisplay();
-  updateTimer();
+  if (currentUserId) saveUserData(); // Persist stats
 }
 
 /**
  * Validates the user's answer against the current problem's answer.
- * Triggers appropriate handlers for correct or incorrect answers.
  */
 function validateAnswer() {
+  if (!gameState.currentProblem || !domElements.answerInput) return;
+
   const userAnswer = domElements.answerInput.value.trim();
-  const correctAnswer = gameState.currentProblem.answer.trim().replace(/\\, \+ C/g, '').replace(/\s/g, '');
-  const cleanedUserAnswer = userAnswer.replace(/\\, \+ C/g, '').replace(/\s/g, '');
+  const correctAnswer = gameState.currentProblem.answer.trim().replace(/\s/g, '').replace(/\+C/g, '');
+  const cleanedUserAnswer = userAnswer.trim().replace(/\s/g, '').replace(/\+C/g, '');
 
   if (cleanedUserAnswer === correctAnswer) {
     handleCorrectAnswer();
@@ -384,17 +389,22 @@ function validateAnswer() {
  */
 function handleCorrectAnswer() {
   gameState.score += 10;
-  gameState.galacticCoins += 5; // Award 5 coins per correct answer
+  gameState.galacticCoins += 5;
   gameState.timer += 10;
-  correctSound.play();
-  coinSound.play(); // Play coin sound
+  correctSound.play().catch(e => console.error("Error playing sound:", e));
+  coinSound.play().catch(e => console.error("Error playing coin sound:", e));
   gameState.stats.correctAnswers++;
-  domElements.answerInput.classList.add("correct-answer-feedback"); // Add class for visual feedback
+  if (domElements.answerInput) {
+    domElements.answerInput.classList.add("correct-answer-feedback");
+  }
   setTimeout(() => {
-    domElements.answerInput.classList.remove("correct-answer-feedback");
+    if (domElements.answerInput) {
+      domElements.answerInput.classList.remove("correct-answer-feedback");
+    }
     updateScoreDisplay();
     displayProblem();
-  }, 500); // Short delay for feedback
+  }, 500);
+  if (currentUserId) saveUserData(); // Persist stats and coins
 }
 
 /**
@@ -403,22 +413,25 @@ function handleCorrectAnswer() {
  */
 function handleIncorrectAnswer() {
   gameState.lives--;
-  wrongSound.play();
+  wrongSound.play().catch(e => console.error("Error playing sound:", e));
   gameState.stats.incorrectAnswers++;
-  domElements.answerInput.classList.add("incorrect-answer-feedback"); // Add class for visual feedback
+  if (domElements.answerInput) {
+    domElements.answerInput.classList.add("incorrect-answer-feedback");
+  }
   setTimeout(() => {
-    domElements.answerInput.classList.remove("incorrect-answer-feedback");
+    if (domElements.answerInput) {
+      domElements.answerInput.classList.remove("incorrect-answer-feedback");
+    }
     updateScoreDisplay();
     if (gameState.lives <= 0) {
       endGame();
     }
-  }, 500); // Short delay for feedback
+  }, 500);
+  if (currentUserId) saveUserData(); // Persist stats
 }
 
 /**
  * Adjusts game difficulty based on the numeric slider value from settings.
- * Modifies initial timer and lives accordingly.
- * @param {number} difficultyValue - The difficulty level (1-5).
  */
 function adjustGameDifficulty(difficultyValue) {
   let diffLabel;
@@ -455,18 +468,8 @@ function adjustGameDifficulty(difficultyValue) {
       gameState.lives = 10;
   }
   gameState.settings.difficultyLabel = diffLabel;
-  domElements.timer.textContent = `Time: ${gameState.timer}`;
-  domElements.lives.textContent = `Lives: ${gameState.lives}`;
-}
-
-/**
- * Updates the timer display. Called by setInterval in startTimer.
- */
-function updateTimer() {
-  domElements.timer.textContent = `Time: ${gameState.timer}`;
-  if (gameState.timer <= 0) {
-    endGame();
-  }
+  updateTimer();
+  updateScoreDisplay();
 }
 
 /**
@@ -476,103 +479,209 @@ function updateTimer() {
 function endGame() {
   clearInterval(gameState.timerInterval);
   const finalScore = gameState.score;
-  domElements.finalScoreDisplay.querySelector('span').textContent = finalScore;
-  domElements.gameOverModal.classList.remove("hidden");
-  domElements.gameOverModal.classList.add("show");
-  updateLeaderboard(finalScore);
-  // Save game state to local storage when game ends
-  saveGameState();
-}
-
-/**
- * Saves relevant game state data to local storage.
- */
-function saveGameState() {
-  localStorage.setItem("highScore", gameState.highScore);
-  localStorage.setItem("galacticCoins", gameState.galacticCoins);
-  localStorage.setItem("achievements", JSON.stringify(gameState.achievements));
-  localStorage.setItem("dailyStreak", gameState.dailyStreak);
-  localStorage.setItem("lastPlayed", gameState.lastPlayed);
-  localStorage.setItem("leaderboard", JSON.stringify(gameState.leaderboard));
-  // You might want to save power-up counts if they persist across games
-  localStorage.setItem("powerUps", JSON.stringify(gameState.powerUps));
-}
-
-/**
- * Loads relevant game state data from local storage.
- */
-function loadGameState() {
-  gameState.highScore = parseInt(localStorage.getItem("highScore")) || 0;
-  gameState.galacticCoins = parseInt(localStorage.getItem("galacticCoins")) || 0;
-  gameState.achievements = JSON.parse(localStorage.getItem("achievements")) || [];
-  gameState.dailyStreak = parseInt(localStorage.getItem("dailyStreak")) || 0;
-  gameState.lastPlayed = localStorage.getItem("lastPlayed") || null;
-  gameState.leaderboard = JSON.parse(localStorage.getItem("leaderboard")) || [];
-  gameState.powerUps = JSON.parse(localStorage.getItem("powerUps")) || { skip: 0, doubleScore: 0, extraTime: 0 };
-}
-
-
-/**
- * Adds the current game score to the leaderboard and persists it.
- * Sorts the leaderboard and keeps only the top 10 entries.
- * @param {number} score - The final score to add to the leaderboard.
- */
-function updateLeaderboard(score) {
-  const newEntry = { score, timestamp: new Date().toISOString() };
-  gameState.leaderboard.push(newEntry);
-  gameState.leaderboard.sort((a, b) => b.score - a.score);
-  localStorage.setItem("leaderboard", JSON.stringify(gameState.leaderboard.slice(0, 10)));
-  displayLeaderboard();
-}
-
-/**
- * Displays the current top 10 scores in the leaderboard section.
- */
-function displayLeaderboard() {
-  domElements.leaderboard.innerHTML = '<h3 class="text-2xl font-semibold text-blue-300 mb-4">Leaderboard</h3>';
-  const topScores = gameState.leaderboard.slice(0, 10);
-  if (topScores.length === 0) {
-    domElements.leaderboard.innerHTML += '<p class="text-gray-400">No scores yet. Play to get on the leaderboard!</p>';
-    return;
+  if (domElements.finalScoreDisplay) {
+    domElements.finalScoreDisplay.querySelector('span').textContent = finalScore;
   }
+  if (domElements.gameOverModal) {
+    domElements.gameOverModal.classList.remove("hidden");
+    domElements.gameOverModal.classList.add("show");
+  }
+  updateLeaderboard(finalScore);
+  if (currentUserId) saveUserData(); // Save final game state to Firestore
+}
 
-  const table = document.createElement('table');
-  table.classList.add('min-w-full', 'divide-y', 'divide-gray-600', 'rounded-lg', 'overflow-hidden');
-  table.innerHTML = `
-    <thead class="bg-gray-600">
-      <tr>
-        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-200 uppercase tracking-wider rounded-tl-lg">Rank</th>
-        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-200 uppercase tracking-wider">Score</th>
-        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-200 uppercase tracking-wider rounded-tr-lg">Date</th>
-      </tr>
-    </thead>
-    <tbody class="bg-gray-700 divide-y divide-gray-600">
-    </tbody>
-  `;
-  const tbody = table.querySelector('tbody');
+/**
+ * Saves relevant game state data to Firestore for authenticated users,
+ * or to local storage for guest users.
+ */
+async function saveUserData() {
+    if (!currentUserId) {
+        console.warn("Cannot save user data: No user authenticated.");
+        return;
+    }
+    const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile`, 'data');
+    try {
+        await setDoc(userDocRef, {
+            username: gameState.username,
+            highScore: gameState.highScore,
+            galacticCoins: gameState.galacticCoins,
+            powerUps: gameState.powerUps,
+            stats: gameState.stats,
+            achievements: gameState.achievements,
+            dailyStreak: gameState.dailyStreak,
+            lastPlayed: gameState.lastPlayed,
+        }, { merge: true }); // Use merge to avoid overwriting other fields
+        console.log("User data saved successfully to Firestore.");
+    } catch (e) {
+        console.error("Error saving user data to Firestore:", e);
+    }
+}
 
-  topScores.forEach((entry, index) => {
-    const row = tbody.insertRow();
-    row.classList.add('hover:bg-gray-600', 'transition-colors', 'duration-200');
-    const formattedTimestamp = new Date(entry.timestamp).toLocaleString();
-    row.innerHTML = `
-      <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-100">${index + 1}</td>
-      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-200">${entry.score}</td>
-      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formattedTimestamp}</td>
-    `;
-  });
-  domElements.leaderboard.appendChild(table);
+/**
+ * Loads user-specific game state data from Firestore for authenticated users,
+ * or from local storage for guest users.
+ */
+async function loadUserData() {
+    if (!currentUserId) {
+        // Load from local storage for guest user
+        gameState.highScore = parseInt(localStorage.getItem("highScore")) || 0;
+        gameState.galacticCoins = parseInt(localStorage.getItem("galacticCoins")) || 0;
+        gameState.achievements = JSON.parse(localStorage.getItem("achievements")) || [];
+        gameState.dailyStreak = parseInt(localStorage.getItem("dailyStreak")) || 0;
+        gameState.lastPlayed = localStorage.getItem("lastPlayed") || null;
+        gameState.powerUps = JSON.parse(localStorage.getItem("powerUps")) || { skip: 0, doubleScore: 0, extraTime: 0 };
+        gameState.stats = JSON.parse(localStorage.getItem("gameStats")) || { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 };
+        gameState.username = "Guest";
+        console.log("Loaded game state from local storage (Guest mode).");
+        return;
+    }
+
+    const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile`, 'data');
+    try {
+        const docSnap = await getDoc(userDocRef);
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            gameState.username = data.username || "Guest";
+            gameState.highScore = data.highScore || 0;
+            gameState.galacticCoins = data.galacticCoins || 0;
+            gameState.powerUps = data.powerUps || { skip: 0, doubleScore: 0, extraTime: 0 };
+            gameState.stats = data.stats || { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 };
+            gameState.achievements = data.achievements || [];
+            gameState.dailyStreak = data.dailyStreak || 0;
+            gameState.lastPlayed = data.lastPlayed || null;
+            console.log("Loaded user data from Firestore:", data);
+        } else {
+            console.log("No profile data found for user, creating default.");
+            gameState.username = "User_" + currentUserId.substring(0, 5);
+            gameState.highScore = 0;
+            gameState.galacticCoins = 0;
+            gameState.powerUps = { skip: 0, doubleScore: 0, extraTime: 0 };
+            gameState.stats = { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 };
+            gameState.achievements = [];
+            gameState.dailyStreak = 0;
+            gameState.lastPlayed = null;
+            await saveUserData(); // Save initial profile
+            console.log("Created default user profile in Firestore.");
+        }
+    } catch (e) {
+        console.error("Error loading user data from Firestore:", e);
+        // Fallback to local storage if Firestore fails for some reason
+        loadGameStateFromLocalStorage();
+    }
+    // After loading, update UI
+    updateScoreDisplay();
+    updatePowerUpsDisplay();
+    updateStatsDisplay();
+    updateMilestoneHistoryDisplay();
+    displayLeaderboard(); // Refresh leaderboard with potentially new user score
+    checkDailyLogin(); // Check daily login after user data is loaded
+}
+
+// Helper to load from local storage (used as fallback or for guest)
+function loadGameStateFromLocalStorage() {
+    gameState.highScore = parseInt(localStorage.getItem("highScore")) || 0;
+    gameState.galacticCoins = parseInt(localStorage.getItem("galacticCoins")) || 0;
+    gameState.achievements = JSON.parse(localStorage.getItem("achievements")) || [];
+    gameState.dailyStreak = parseInt(localStorage.getItem("dailyStreak")) || 0;
+    gameState.lastPlayed = localStorage.getItem("lastPlayed") || null;
+    gameState.powerUps = JSON.parse(localStorage.getItem("powerUps")) || { skip: 0, doubleScore: 0, extraTime: 0 };
+    gameState.stats = JSON.parse(localStorage.getItem("gameStats")) || { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 };
+    gameState.username = "Guest";
+    console.log("Loaded game state from local storage (fallback/guest).");
+}
+
+
+/**
+ * Adds the current game score to the leaderboard and persists it to Firestore.
+ */
+async function updateLeaderboard(score) {
+    if (!isAuthReady) {
+        console.warn("Auth not ready, skipping leaderboard update.");
+        return;
+    }
+
+    const leaderboardCollectionRef = collection(db, `artifacts/${appId}/public/data/leaderboard`);
+    const username = gameState.username || "Guest"; // Use actual username
+
+    try {
+        await addDoc(leaderboardCollectionRef, {
+            score: score,
+            timestamp: new Date().toISOString(),
+            userId: currentUserId,
+            username: username
+        });
+        console.log("Score added to leaderboard.");
+        displayLeaderboard();
+    } catch (e) {
+        console.error("Error adding score to leaderboard:", e);
+    }
+}
+
+/**
+ * Displays the current top 10 scores in the leaderboard section from Firestore.
+ */
+async function displayLeaderboard() {
+    if (!domElements.leaderboard || !isAuthReady) {
+        console.warn("Leaderboard element or Auth not ready, skipping display.");
+        return;
+    }
+
+    domElements.leaderboard.innerHTML = '<h3 class="text-2xl font-semibold text-blue-300 mb-4">Leaderboard</h3>';
+    const leaderboardCollectionRef = collection(db, `artifacts/${appId}/public/data/leaderboard`);
+    const q = query(leaderboardCollectionRef, orderBy("score", "desc"), limit(10));
+
+    try {
+        const querySnapshot = await getDocs(q);
+        const topScores = [];
+        querySnapshot.forEach((doc) => {
+            topScores.push(doc.data());
+        });
+
+        if (topScores.length === 0) {
+            domElements.leaderboard.innerHTML += '<p class="text-gray-400">No scores yet. Play to get on the leaderboard!</p>';
+            return;
+        }
+
+        const table = document.createElement('table');
+        table.classList.add('min-w-full', 'divide-y', 'divide-gray-600', 'rounded-lg', 'overflow-hidden');
+        table.innerHTML = `
+            <thead class="bg-gray-600">
+            <tr>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-200 uppercase tracking-wider rounded-tl-lg">Rank</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-200 uppercase tracking-wider">Username</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-200 uppercase tracking-wider">Score</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-200 uppercase tracking-wider rounded-tr-lg">Date</th>
+            </tr>
+            </thead>
+            <tbody class="bg-gray-700 divide-y divide-gray-600">
+            </tbody>
+        `;
+        const tbody = table.querySelector('tbody');
+
+        topScores.forEach((entry, index) => {
+            const row = tbody.insertRow();
+            row.classList.add('hover:bg-gray-600', 'transition-colors', 'duration-200');
+            const formattedTimestamp = new Date(entry.timestamp).toLocaleString();
+            row.innerHTML = `
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-100">${index + 1}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-200">${entry.username || 'N/A'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-200">${entry.score}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formattedTimestamp}</td>
+            `;
+        });
+        domElements.leaderboard.appendChild(table);
+    } catch (e) {
+        console.error("Error displaying leaderboard:", e);
+    }
 }
 
 /**
  * Initializes the game state and UI elements when the page loads.
- * Loads settings, updates displays, starts timer, and displays the first problem.
  */
 function initializeGame() {
   console.log("Initializing game state...");
 
-  loadGameState(); // Load existing game state
-
+  // Load settings from local storage (these are not user-specific and can be local)
   const savedSettings = JSON.parse(localStorage.getItem("gameSettings"));
   if (savedSettings) {
     gameState.settings = {
@@ -581,26 +690,68 @@ function initializeGame() {
     };
   }
 
+  // Adjust difficulty based on settings
   adjustGameDifficulty(gameState.settings.difficulty);
 
-  updateScoreDisplay();
-  updatePowerUpsDisplay();
-  updateStatsDisplay();
-  updateMilestoneHistoryDisplay();
-  displayLeaderboard();
-  checkDailyLogin(); // Check for daily login reward
-
-  // Only start timer and display problem if on the game page
-  if (window.location.pathname.includes('game.html')) {
-    startTimer();
-    displayProblem();
-  }
+  // The rest of the initialization (loading user data, starting timer, displaying problem)
+  // is now handled by the onAuthStateChanged listener to ensure Firebase is ready.
 
   console.log("Game initialized with settings:", gameState.settings);
 }
 
+// Firebase Authentication State Listener
+onAuthStateChanged(auth, async (user) => {
+    if (user) {
+        currentUserId = user.uid;
+        console.log("User logged in (Firebase):", currentUserId);
+
+        // Sign in with custom token if available, otherwise anonymously
+        // This block ensures the Canvas environment's auth token is used if provided,
+        // otherwise falls back to anonymous sign-in.
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            try {
+                await signInWithCustomToken(auth, __initial_auth_token);
+                console.log("Signed in with custom token.");
+            } catch (error) {
+                console.error("Error signing in with custom token:", error);
+                await signInAnonymously(auth);
+                console.log("Signed in anonymously due to custom token error.");
+            }
+        } else {
+            await signInAnonymously(auth);
+            console.log("Signed in anonymously.");
+        }
+
+        // Load user-specific data from Firestore after auth is confirmed
+        await loadUserData();
+        initializeAuthLinks(); // Update auth links based on logged-in status
+    } else {
+        currentUserId = null;
+        console.log("User logged out or not authenticated (Firebase).");
+        initializeAuthLinks(); // Update auth links based on logged-out status
+        // Clear user-specific data and load from local storage for anonymous/guest user
+        loadGameStateFromLocalStorage();
+        updateScoreDisplay();
+        updatePowerUpsDisplay();
+        updateStatsDisplay();
+        updateMilestoneHistoryDisplay();
+        displayLeaderboard();
+    }
+    isAuthReady = true; // Set auth ready flag
+
+    // If on game page, start game after auth is ready and data is loaded
+    if (window.location.pathname.includes('game.html')) {
+        // Only start if timer is not already running (prevents multiple starts on page load)
+        if (!gameState.timerInterval) {
+            startTimer();
+            displayProblem();
+        }
+    }
+});
+
 
 // --- Problem Generation Helper Functions ---
+// (These remain the same as they are static data)
 
 function getDifferentiationProblems() {
   return {
@@ -680,8 +831,6 @@ function getIntegrationProblems() {
   };
 }
 
-// --- Daily Login Reward System ---
-
 /**
  * Checks if the user has logged in today and awards a daily bonus if applicable.
  */
@@ -690,9 +839,9 @@ function checkDailyLogin() {
   if (gameState.lastPlayed !== today) {
     gameState.dailyStreak++;
     gameState.lastPlayed = today;
-    gameState.galacticCoins += 10; // Daily bonus coins
+    gameState.galacticCoins += 10;
     showDailyRewardNotification(gameState.dailyStreak, 10);
-    saveGameState(); // Persist streak and coins
+    if (currentUserId) saveUserData(); // Persist streak and coins
   } else {
     console.log("Already received daily reward for today.");
   }
@@ -700,8 +849,6 @@ function checkDailyLogin() {
 
 /**
  * Displays a notification for the daily login reward.
- * @param {number} streak - Current daily streak.
- * @param {number} coinsEarned - Coins earned today.
  */
 function showDailyRewardNotification(streak, coinsEarned) {
   const notification = document.createElement("div");
@@ -711,35 +858,36 @@ function showDailyRewardNotification(streak, coinsEarned) {
       Streak: ${streak} days!<br>
       You earned <em class="font-semibold">${coinsEarned} Galactic Coins!</em>`;
   document.body.appendChild(notification);
-  coinSound.play(); // Play coin sound for daily reward
+  coinSound.play().catch(e => console.error("Error playing sound:", e));
 
-  const styleSheet = document.createElement("style");
-  styleSheet.type = "text/css";
-  styleSheet.innerText = `
-    @keyframes fadeInOut {
-      0% { opacity: 0; transform: translate(-50%, -50px); }
-      10% { opacity: 1; transform: translate(-50%, 0); }
-      90% { opacity: 1; transform: translate(-50%, 0); }
-      100% { opacity: 0; transform: translate(-50%, -50px); }
-    }
-    .animate-fadeInOut {
-      animation: fadeInOut 3s forwards;
-    }
-  `;
-  document.head.appendChild(styleSheet);
+  if (!document.getElementById('fadeInOutStyle')) {
+    const styleSheet = document.createElement("style");
+    styleSheet.id = 'fadeInOutStyle';
+    styleSheet.type = "text/css";
+    styleSheet.innerText = `
+      @keyframes fadeInOut {
+        0% { opacity: 0; transform: translate(-50%, -50px); }
+        10% { opacity: 1; transform: translate(-50%, 0); }
+        90% { opacity: 1; transform: translate(-50%, 0); }
+        100% { opacity: 0; transform: translate(-50%, -50px); }
+      }
+      .animate-fadeInOut {
+        animation: fadeInOut 3s forwards;
+      }
+    `;
+    document.head.appendChild(styleSheet);
+  }
 
   setTimeout(() => notification.remove(), 3000);
 }
-
-// --- Shop Functions ---
 
 /**
  * Opens the shop modal and populates it with available items.
  */
 function openShopModal() {
   if (domElements.shopModal) {
-    domElements.shopModal.classList.add("show");
     domElements.shopModal.classList.remove("hidden");
+    domElements.shopModal.classList.add("show");
     populateShopItems();
   }
 }
@@ -760,7 +908,7 @@ function closeShopModal() {
 function populateShopItems() {
   if (!domElements.shopItemsContainer) return;
 
-  domElements.shopItemsContainer.innerHTML = ''; // Clear previous items
+  domElements.shopItemsContainer.innerHTML = '';
 
   for (const itemKey in gameState.shopItems) {
     const item = gameState.shopItems[itemKey];
@@ -780,7 +928,6 @@ function populateShopItems() {
     domElements.shopItemsContainer.appendChild(itemElement);
   }
 
-  // Add event listeners to buy buttons
   domElements.shopItemsContainer.querySelectorAll('.buy-button').forEach(button => {
     button.addEventListener('click', (event) => {
       const itemToBuy = event.target.dataset.item;
@@ -791,7 +938,6 @@ function populateShopItems() {
 
 /**
  * Handles the purchase of a power-up from the shop.
- * @param {string} itemKey - The key of the item to purchase (e.g., "skip").
  */
 function purchasePowerUp(itemKey) {
   const item = gameState.shopItems[itemKey];
@@ -803,12 +949,12 @@ function purchasePowerUp(itemKey) {
   if (gameState.galacticCoins >= item.cost) {
     gameState.galacticCoins -= item.cost;
     gameState.powerUps[itemKey]++;
-    purchaseSound.play(); // Play purchase sound
+    purchaseSound.play().catch(e => console.error("Error playing sound:", e));
     showPurchaseNotification(`Purchased ${itemKey.replace(/([A-Z])/g, ' $1').trim()}!`, 'success');
-    updateScoreDisplay(); // Update coins display
-    updatePowerUpsDisplay(); // Update power-ups display
-    saveGameState(); // Persist changes
-    populateShopItems(); // Re-populate shop to reflect coin change
+    updateScoreDisplay();
+    updatePowerUpsDisplay();
+    if (currentUserId) saveUserData();
+    populateShopItems();
   } else {
     showPurchaseNotification("Not enough coins!", 'error');
     console.log("Not enough coins to buy", itemKey);
@@ -817,8 +963,6 @@ function purchasePowerUp(itemKey) {
 
 /**
  * Displays a temporary notification for a purchase.
- * @param {string} message - The message to display.
- * @param {string} type - "success" or "error".
  */
 function showPurchaseNotification(message, type) {
   const notification = document.createElement("div");
@@ -833,43 +977,38 @@ function showPurchaseNotification(message, type) {
   notification.textContent = message;
   document.body.appendChild(notification);
 
-  const styleSheet = document.createElement("style");
-  styleSheet.type = "text/css";
-  styleSheet.innerText = `
-    @keyframes fadeInOut {
-      0% { opacity: 0; transform: translate(-50%, -50px); }
-      10% { opacity: 1; transform: translate(-50%, 0); }
-      90% { opacity: 1; transform: translate(-50%, 0); }
-      100% { opacity: 0; transform: translate(-50%, -50px); }
-    }
-    .animate-fadeInOut {
-      animation: fadeInOut 3s forwards;
-    }
-  `;
-  document.head.appendChild(styleSheet);
+  if (!document.getElementById('fadeInOutStyle')) {
+    const styleSheet = document.createElement("style");
+    styleSheet.id = 'fadeInOutStyle';
+    styleSheet.type = "text/css";
+    styleSheet.innerText = `
+      @keyframes fadeInOut {
+        0% { opacity: 0; transform: translate(-50%, -50px); }
+        10% { opacity: 1; transform: translate(-50%, 0); }
+        90% { opacity: 1; transform: translate(-50%, 0); }
+        100% { opacity: 0; transform: translate(-50%, -50px); }
+      }
+      .animate-fadeInOut {
+        animation: fadeInOut 3s forwards;
+      }
+    `;
+    document.head.appendChild(styleSheet);
+  }
 
   setTimeout(() => notification.remove(), 3000);
 }
 
-
-// --- Authentication Related Functions (PLACEHOLDERS) ---
-// These functions would typically interact with a backend authentication service (e.g., Firebase Auth)
-
+/**
+ * Updates the navigation links based on authentication status.
+ */
 function initializeAuthLinks() {
-  // This function would check if a user is logged in
-  // and update the #auth-links ul accordingly.
-  // For now, it just ensures the links are visible.
   if (domElements.authLinks) {
-    // Example: If user is logged in, show 'Profile' and 'Logout'
-    // Else, show 'Login' and 'Sign Up'
-    // This logic would be replaced with actual auth state checking
-    const isLoggedIn = false; // Placeholder
-    if (isLoggedIn) {
+    const user = auth.currentUser;
+    if (user) {
       domElements.authLinks.innerHTML = `
         <li><a href="profile.html">Profile</a></li>
         <li><a href="#" id="logoutButtonNav">Logout</a></li>
       `;
-      // Add event listener to dynamically created logout button
       const logoutBtnNav = document.getElementById('logoutButtonNav');
       if (logoutBtnNav) {
         logoutBtnNav.addEventListener('click', handleLogout);
@@ -883,36 +1022,100 @@ function initializeAuthLinks() {
   }
 }
 
-function validateLoginForm() {
-  // Placeholder for login form validation and submission
-  console.log("Login form submitted (placeholder)");
-  // In a real app, you'd send data to a server and handle response
-  // For now, just prevent default submission and simulate success
-  // window.location.href = 'profile.html'; // Redirect on successful login
+/**
+ * Handles user login with email and password.
+ */
+async function validateLoginForm() {
+  const emailInput = document.getElementById('email');
+  const passwordInput = document.getElementById('password');
+
+  if (!emailInput || !passwordInput) {
+      console.error("Login form elements not found.");
+      return false;
+  }
+
+  const email = emailInput.value;
+  const password = passwordInput.value;
+
+  try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      console.log("User logged in:", userCredential.user.uid);
+      window.location.href = 'profile.html'; // Redirect on successful login
+  } catch (error) {
+      console.error("Error logging in:", error.message);
+      showPurchaseNotification(`Login failed: ${error.message}`, 'error');
+  }
   return false; // Prevent default form submission
 }
 
-function validateSignupForm() {
-  // Placeholder for signup form validation and submission
-  console.log("Signup form submitted (placeholder)");
-  // In a real app, you'd send data to a server and handle response
-  // For now, just prevent default submission and simulate success
-  // window.location.href = 'login.html'; // Redirect to login after signup
+/**
+ * Handles user signup with email, password, and username.
+ */
+async function validateSignupForm() {
+  const usernameInput = document.getElementById('username');
+  const emailInput = document.getElementById('email');
+  const passwordInput = document.getElementById('password');
+
+  if (!usernameInput || !emailInput || !passwordInput) {
+      console.error("Signup form elements not found.");
+      return false;
+  }
+
+  const username = usernameInput.value;
+  const email = emailInput.value;
+  const password = passwordInput.value;
+
+  try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const userId = userCredential.user.uid;
+      console.log("User signed up:", userId);
+
+      // Save initial user profile data to Firestore
+      const userDocRef = doc(db, `artifacts/${appId}/users/${userId}/profile`, 'data');
+      await setDoc(userDocRef, {
+          username: username,
+          email: email,
+          highScore: 0,
+          galacticCoins: 0,
+          powerUps: { skip: 0, doubleScore: 0, extraTime: 0 },
+          stats: { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 },
+          achievements: [],
+          dailyStreak: 0,
+          lastPlayed: null,
+      });
+      console.log("Initial user profile created in Firestore.");
+
+      window.location.href = 'login.html'; // Redirect to login after signup
+  } catch (error) {
+      console.error("Error signing up:", error.message);
+      showPurchaseNotification(`Signup failed: ${error.message}`, 'error');
+  }
   return false; // Prevent default form submission
 }
 
-function handleLogout() {
-  // Placeholder for logout logic
-  console.log("User logged out (placeholder)");
-  // Clear user session, update auth links, redirect to index
-  // window.location.href = 'index.html';
+/**
+ * Handles user logout.
+ */
+async function handleLogout() {
+  try {
+      await signOut(auth);
+      console.log("User logged out successfully.");
+      window.location.href = 'index.html'; // Redirect to index page after logout
+  } catch (error) {
+      console.error("Error logging out:", error.message);
+      showPurchaseNotification(`Logout failed: ${error.message}`, 'error');
+  }
 }
 
-function updateProfileDisplay(username, email, highScore, gamesPlayed) {
+/**
+ * Updates the profile display on the profile.html page.
+ */
+function updateProfileDisplay(username, email, highScore, gamesPlayed, userId) {
   if (domElements.profileUsername) domElements.profileUsername.textContent = username;
   if (domElements.profileEmail) domElements.profileEmail.textContent = email;
   if (domElements.profileHighScore) domElements.profileHighScore.textContent = highScore;
   if (domElements.profileGamesPlayed) domElements.profileGamesPlayed.textContent = gamesPlayed;
+  if (domElements.profileUserId) domElements.profileUserId.textContent = userId; // Display the user ID
 }
 
 // Event Listeners for Game Page
@@ -928,23 +1131,22 @@ if (domElements.doubleScoreButton) {
 if (domElements.extraTimeButton) {
   domElements.extraTimeButton.addEventListener("click", useExtraTime);
 }
-if (domElements.shopButton) { // New: Shop button event listener
+if (domElements.shopButton) {
   domElements.shopButton.addEventListener("click", openShopModal);
 }
-if (domElements.shopModal) { // New: Close shop modal button
+if (domElements.shopModal) {
   const closeShopBtn = domElements.shopModal.querySelector('.close-button');
   if (closeShopBtn) {
     closeShopBtn.addEventListener('click', closeShopModal);
   }
 }
 
-
 // Event listener for the "Restart Game" button in the Game Over modal
 if (domElements.gameOverModal) {
     const restartBtn = domElements.gameOverModal.querySelector('.btn');
     if (restartBtn) {
         restartBtn.addEventListener('click', () => {
-            location.reload(); // Reload the page to restart the game
+            location.reload();
         });
     }
 }
@@ -961,14 +1163,8 @@ if (domElements.logoutButton) {
 }
 
 // Initial calls for profile page (if on profile.html)
-// This would be replaced with actual user data fetching
 if (window.location.pathname.includes('profile.html')) {
-  // Simulate fetching user data
-  const currentUser = {
-    username: "SpaceExplorer",
-    email: "user@galactic.com",
-    highScore: gameState.highScore, // Use actual high score from game state
-    gamesPlayed: gameState.stats.totalQuestions // Use total questions as games played (simple)
-  };
-  updateProfileDisplay(currentUser.username, currentUser.email, currentUser.highScore, currentUser.gamesPlayed);
+  // This will be handled by onAuthStateChanged which calls loadUserData
+  // and then updateProfileDisplay with actual user data.
+  // We simply ensure the DOM elements are ready.
 }
