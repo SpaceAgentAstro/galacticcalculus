@@ -2,7 +2,9 @@ console.log("Script loaded.");
 
 // Firebase Imports (MUST be at the top for module loading)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+         GoogleAuthProvider, GithubAuthProvider, OAuthProvider // Apple and Microsoft providers
+       } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore, doc, setDoc, getDoc, collection, query, orderBy, limit, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 // Firebase Initialization
@@ -11,6 +13,12 @@ const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__f
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+
+// Initialize Firebase Auth Providers
+const googleProvider = new GoogleAuthProvider();
+const githubProvider = new GithubAuthProvider();
+const appleProvider = new OAuthProvider('apple.com'); // Apple provider
+const microsoftProvider = new OAuthProvider('microsoft.com'); // Microsoft provider
 
 // Global Firebase variables for user and auth state
 let currentUserId = null;
@@ -572,7 +580,7 @@ async function loadUserData() {
             console.log("Loaded user data from Firestore:", data);
         } else {
             console.log("No profile data found for user, creating default.");
-            gameState.username = "User_" + currentUserId.substring(0, 5);
+            gameState.username = auth.currentUser.displayName || "User_" + currentUserId.substring(0, 5); // Use display name from auth if available
             gameState.highScore = 0;
             gameState.galacticCoins = 0;
             gameState.powerUps = { skip: 0, doubleScore: 0, extraTime: 0 };
@@ -1184,6 +1192,60 @@ async function validateSignupForm() {
       showPurchaseNotification(`Signup failed: ${error.message}`, 'error');
   }
   return false; // Prevent default form submission
+}
+
+/**
+ * Handles social sign-in with a given Firebase Auth provider.
+ * @param {firebase.auth.AuthProvider} provider - The Firebase Auth provider (e.g., GoogleAuthProvider).
+ */
+async function handleSocialSignIn(provider) {
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+    console.log("Social sign-in successful:", user.uid, user.displayName, user.email);
+
+    // Check if user data already exists in Firestore for this user
+    const userDocRef = doc(db, `artifacts/${appId}/users/${user.uid}/profile`, 'data');
+    const docSnap = await getDoc(userDocRef);
+
+    if (!docSnap.exists()) {
+      // If new user, create a profile in Firestore
+      await setDoc(userDocRef, {
+        username: user.displayName || user.email.split('@')[0] || "NewUser",
+        email: user.email,
+        highScore: 0,
+        galacticCoins: 0,
+        powerUps: { skip: 0, doubleScore: 0, extraTime: 0 },
+        stats: { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 },
+        achievements: [],
+        dailyStreak: 0,
+        lastPlayed: null,
+      });
+      console.log("New user profile created in Firestore for social login.");
+    }
+
+    window.location.href = 'profile.html'; // Redirect to profile page
+  } catch (error) {
+    console.error("Social sign-in failed:", error.code, error.message);
+    showPurchaseNotification(`Social login failed: ${error.message}`, 'error');
+  }
+}
+
+// Social Login functions
+function signInWithGoogle() {
+  handleSocialSignIn(googleProvider);
+}
+
+function signInWithApple() {
+  handleSocialSignIn(appleProvider);
+}
+
+function signInWithGitHub() {
+  handleSocialSignIn(githubProvider);
+}
+
+function signInWithMicrosoft() {
+  handleSocialSignIn(microsoftProvider);
 }
 
 /**
