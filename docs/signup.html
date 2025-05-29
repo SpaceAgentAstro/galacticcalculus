@@ -6,38 +6,51 @@
     <meta name="description" content="Sign Up for Galactic Calculus">
     <title>Sign Up - Galactic Calculus</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* No inline styles needed here, as fonts are handled by styles.css and Tailwind */
+    </style>
     <script src="script.js" defer></script>
 </head>
-<body>
-    <!-- Navbar -->
-    <nav id="navbar-main">
-        <a href="index.html" class="navbar-brand">
-            <img src="favicon.ico" alt="Brand Logo" class="favicon">
-            <span class="brand-title">GALACTIC CALCULUS</span>
-        </a>
-        <ul id="auth-links"></ul>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+    <nav id="navbar-main" class="w-full max-w-6xl mx-auto mb-8 md:mb-16">
+      <a href="index.html" class="navbar-brand">
+        <img src="favicon.ico" alt="Brand Logo" class="favicon">
+        <span class="brand-title">GALACTIC CALCULUS</span>
+      </a>
+      <ul id="auth-links" class="flex space-x-4">
+        <li><a href="login.html">Login</a></li>
+        <li><a href="signup.html">Sign Up</a></li>
+      </ul>
     </nav>
 
-    <!-- Sign Up Form -->
-    <div class="container">
-        <h1><i class="fas fa-user-plus"></i> Sign Up</h1>
+    <div class="container flex flex-col items-center justify-center space-y-8">
+        <h1>
+            <i class="fas fa-user-plus"></i> Sign Up
+        </h1>
         <form id="signup-form" class="form-container" onsubmit="return validateSignupForm()">
             <div class="form-group">
                 <label for="username">Username:</label>
-                <input type="text" id="username" name="username" required>
+                <input type="text" id="username" name="username" required />
             </div>
             <div class="form-group">
                 <label for="email">Email:</label>
-                <input type="email" id="email" name="email" required>
+                <input type="email" id="email" name="email" required />
             </div>
             <div class="form-group">
                 <label for="password">Password:</label>
-                <input type="password" id="password" name="password" required>
+                <input type="password" id="password" name="password" required />
             </div>
             <button type="submit" class="btn">
                 <i class="fas fa-user-plus"></i> Register
             </button>
         </form>
+        <p>Already have an account? <a href="login.html">Log In</a></p>
     </div>
+
+    <footer class="mt-auto py-4 text-gray-400 text-sm text-center w-full">
+        &copy; 2025 Galactic Calculus. All rights reserved to Mouad Maamma.
+    </footer>
 </body>
 </html>
