@@ -877,6 +877,90 @@ button {
   transform: scale(1.02); /* Slightly more dramatic scale */
 }
 
+/* Social Login Buttons */
+.social-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #ffffff;
+  border: 1px solid transparent; /* Default transparent border */
+  transition: all 0.3s ease;
+}
+
+.social-btn i {
+  font-size: 1.3rem;
+  margin-right: 10px;
+}
+
+/* Google Button */
+.btn-google {
+  background-color: #ffffff;
+  color: #000000;
+  border-color: #e0e0e0;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.btn-google:hover {
+  background-color: #f0f0f0;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  transform: translateY(-2px);
+}
+
+.btn-google i {
+  color: #ea4335; /* Google Red */
+}
+
+/* Apple Button */
+.btn-apple {
+  background-color: #000000;
+  color: #ffffff;
+  border-color: #333333;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+.btn-apple:hover {
+  background-color: #1a1a1a;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px);
+}
+
+/* GitHub Button */
+.btn-github {
+  background-color: #333333;
+  color: #ffffff;
+  border-color: #555555;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+.btn-github:hover {
+  background-color: #444444;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px);
+}
+
+/* Microsoft Button */
+.btn-microsoft {
+  background-color: #2f2f2f; /* Darker grey for Microsoft */
+  color: #ffffff;
+  border-color: #4f4f4f;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+.btn-microsoft:hover {
+  background-color: #3f3f3f;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px);
+}
+
+.btn-microsoft i {
+  color: #f25022; /* Microsoft Red */
+}
+
+
 /* Responsive Adjustments */
 @media (max-width: 768px) {
   h1 {
@@ -981,6 +1065,9 @@ button {
   .start-game-btn, .btn {
     font-size: 1.3rem;
     padding: 15px 30px;
+  }
+  .social-login-options .grid {
+    grid-template-columns: 1fr; /* Stack buttons on very small screens */
   }
   .shop-item {
     padding: 15px;
