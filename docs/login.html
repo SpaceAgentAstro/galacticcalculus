@@ -7,7 +7,7 @@
     <title>Log In - Galactic Calculus</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <script src="script.js" defer></script>
+    <script type="module" src="script.js" defer></script>
 </head>
 <body>
     <nav id="navbar-main">
@@ -37,16 +37,16 @@
         <div class="social-login-options mt-8">
             <p class="text-gray-300 mb-4">Or log in with:</p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <button class="btn social-btn bg-red-600 hover:bg-red-700" onclick="alert('Google login not yet implemented via Firebase SDK. This would typically trigger a Google sign-in pop-up.')">
+                <button class="btn social-btn btn-google" onclick="signInWithGoogle()">
                     <i class="fab fa-google mr-2"></i> Google
                 </button>
-                <button class="btn social-btn bg-gray-800 hover:bg-gray-900" onclick="alert('Apple login not yet implemented via Firebase SDK. This would typically trigger an Apple sign-in pop-up.')">
+                <button class="btn social-btn btn-apple" onclick="signInWithApple()">
                     <i class="fab fa-apple mr-2"></i> Apple
                 </button>
-                <button class="btn social-btn bg-gray-700 hover:bg-gray-800" onclick="alert('GitHub login not yet implemented via Firebase SDK. This would typically trigger a GitHub sign-in pop-up.')">
+                <button class="btn social-btn btn-github" onclick="signInWithGitHub()">
                     <i class="fab fa-github mr-2"></i> GitHub
                 </button>
-                <button class="btn social-btn bg-blue-700 hover:bg-blue-800" onclick="alert('Microsoft login not yet implemented via Firebase SDK. This would typically trigger a Microsoft sign-in pop-up.')">
+                <button class="btn social-btn btn-microsoft" onclick="signInWithMicrosoft()">
                     <i class="fab fa-microsoft mr-2"></i> Microsoft
                 </button>
             </div>
