@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "852530228562",
+    "project_id": "galactic-calculus",
+    "storage_bucket": "galactic-calculus.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:852530228562:android:a54678e94cd456e2fade8b",
+        "android_client_info": {
+          "package_name": "com.galacticcalulus.game"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBCrjRoCRrC-zhOr_1aGASG6e9H47a9yNg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
