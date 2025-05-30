@@ -17,10 +17,10 @@ if (!firebaseConfig.projectId) {
     firebaseConfig = {
         apiKey: firebaseConfig.apiKey || "AIzaSyBCrjRoCRrC-zhOr_1aGASG6e9H47a9yNg", // Replace with your actual API Key
         authDomain: firebaseConfig.authDomain || "YOUR_FIREBASE_AUTH_DOMAIN", // Replace with your actual Auth Domain
-        projectId: "YOUR_FIREBASE_PROJECT_ID", // Replace with your actual Project ID
-        storageBucket: firebaseConfig.storageBucket || "YOUR_FIREBASE_STORAGE_BUCKET", // Replace with your actual Storage Bucket
+        projectId: "galactic-calculus", // Replace with your actual Project ID
+        storageBucket: firebaseConfig.storageBucket || "galactic-calculus.firebasestorage.app", // Replace with your actual Storage Bucket
         messagingSenderId: firebaseConfig.messagingSenderId || "YOUR_FIREBASE_MESSAGING_SENDER_ID", // Replace with your actual Messaging Sender ID
-        appId: firebaseConfig.appId || "YOUR_FIREBASE_APP_ID" // Replace with your actual App ID
+        appId: firebaseConfig.appId || "1:852530228562:android:a54678e94cd456e2fade8b" // Replace with your actual App ID
     };
 }
 
