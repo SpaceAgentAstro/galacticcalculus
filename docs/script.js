@@ -15,7 +15,7 @@ let firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__fir
 if (!firebaseConfig.projectId) {
     console.warn("Firebase projectId not found in __firebase_config. Using placeholder values. Please ensure Firebase is properly configured in your environment.");
     firebaseConfig = {
-        apiKey: firebaseConfig.apiKey || "YOUR_FIREBASE_API_KEY", // Replace with your actual API Key
+        apiKey: firebaseConfig.apiKey || "AIzaSyBCrjRoCRrC-zhOr_1aGASG6e9H47a9yNg", // Replace with your actual API Key
         authDomain: firebaseConfig.authDomain || "YOUR_FIREBASE_AUTH_DOMAIN", // Replace with your actual Auth Domain
         projectId: "YOUR_FIREBASE_PROJECT_ID", // Replace with your actual Project ID
         storageBucket: firebaseConfig.storageBucket || "YOUR_FIREBASE_STORAGE_BUCKET", // Replace with your actual Storage Bucket
