@@ -1,1360 +1,1148 @@
-console.log("Script loaded.");
-
-// Firebase Imports (MUST be at the top for module loading)
+// Import Firebase modules
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword,
-         GoogleAuthProvider, GithubAuthProvider, OAuthProvider, signInWithPopup // Apple and Microsoft providers, and signInWithPopup
-       } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-import { getFirestore, doc, setDoc, getDoc, collection, query, orderBy, limit, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getAuth, signInAnonymously, signInWithCustomToken, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, limit, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-// Firebase Initialization
+// Global Firebase variables (provided by Canvas environment)
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-let firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-// Ensure projectId and other essential config properties are present for Firebase initialization
-if (!firebaseConfig.projectId) {
-    console.warn("Firebase projectId not found in __firebase_config. Using placeholder values. Please ensure Firebase is properly configured in your environment.");
-    firebaseConfig = {
-        apiKey: firebaseConfig.apiKey || "AIzaSyBCrjRoCRrC-zhOr_1aGASG6e9H47a9yNg", // Replace with your actual API Key
-        authDomain: firebaseConfig.authDomain || "galactic-calculus.firebaseapp.com", // Replace with your actual Auth Domain
-        projectId: "galactic-calculus", // Replace with your actual Project ID
-        storageBucket: firebaseConfig.storageBucket || "galactic-calculus.firebasestorage.app", // Replace with your actual Storage Bucket
-        messagingSenderId: firebaseConfig.messagingSenderId || "852530228562", // Replace with your actual Messaging Sender ID
-        appId: firebaseConfig.appId || "1:852530228562:android:a54678e94cd456e2fade8b" // Replace with your actual App ID
-    };
-}
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const auth = getAuth(app);
-
-// Initialize Firebase Auth Providers
-const googleProvider = new GoogleAuthProvider();
-const githubProvider = new GithubAuthProvider();
-const appleProvider = new OAuthProvider('apple.com'); // Apple provider
-const microsoftProvider = new OAuthProvider('microsoft.com'); // Microsoft provider
-
-// Global Firebase variables for user and auth state
-let currentUserId = null;
-let isAuthReady = false; // Flag to ensure Firestore operations happen after auth is ready
+// Firebase App and Services instances
+let app;
+let auth;
+let db;
+let userId = null; // To store the current user's ID
 
 // Game State
 const gameState = {
-  score: 0,
-  highScore: 0, // Will be loaded from Firestore or local storage
-  lives: 10,
-  timer: 120,
-  timerInterval: null,
-  isPaused: false,
-  currentProblem: null,
-  achievements: [], // Will be loaded from Firestore or local storage
-  dailyStreak: 0, // Will be loaded from Firestore or local storage
-  lastPlayed: null, // Will be loaded from Firestore or local storage
-  galacticCoins: 0, // Will be loaded from Firestore or local storage
-  username: "Guest", // Default username, will be updated from Firestore
-  settings:
-    JSON.parse(localStorage.getItem("gameSettings")) || {
-      difficulty: 2,
-      diff: true, // Default to differentiation problems
-      int: false, // Default to no integration problems
-      timer: 120,
+    score: 0,
+    highScore: parseInt(localStorage.getItem('highScore')) || 0, // Local storage for initial high score
+    lives: 10,
+    timer: 120,
+    timerInterval: null,
+    isPaused: false,
+    currentProblem: null,
+    achievements: JSON.parse(localStorage.getItem('achievements')) || [],
+    dailyStreak: parseInt(localStorage.getItem('dailyStreak')) || 0,
+    lastPlayed: localStorage.getItem('lastPlayed') || null,
+    settings: JSON.parse(localStorage.getItem('gameSettings')) || {
+        difficulty: 'medium',
+        questionTypes: ['diff', 'antiderivative'],
+        timer: 120,
     },
-  leaderboard: [], // Will be loaded from Firestore
-  powerUps: { skip: 0, doubleScore: 0, extraTime: 0 }, // Will be loaded from Firestore or local storage
-  stats: { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 }, // Will be loaded from Firestore or local storage
-  milestones: {
-    scoreMilestones: { 50: "skip", 100: "doubleScore", 200: "extraTime" },
-    streakMilestones: { 5: "doubleScore", 10: "extraTime", 15: "skip" },
-  },
-  milestoneHistory: [],
-  shopItems: {
-    skip: { cost: 50, description: "Skip the current problem" },
-    doubleScore: { cost: 100, description: "Double score for next 3 problems" },
-    extraTime: { cost: 75, description: "Add 30 seconds to the timer" },
-  }
+    leaderboard: [], // Leaderboard will be fetched from Firestore
+    powerUps: { skip: 0, doubleScore: 0, extraTime: 0 },
+    stats: { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0, gamesPlayed: 0 },
+    milestones: {
+        scoreMilestones: { 50: 'skip', 100: 'doubleScore', 200: 'extraTime' },
+        streakMilestones: { 5: 'doubleScore', 10: 'extraTime', 15: 'skip' },
+    },
+    milestoneHistory: [], // Tracks unlocked milestones during the session
 };
 
-/**
- * DOM Elements object.
- * Caches references to frequently accessed DOM elements for efficiency.
- */
+// Constants for DOM Elements
 const domElements = {
-  score: document.getElementById("score-value"),
-  highScore: document.getElementById("high-score-value"),
-  lives: document.getElementById("lives-value"),
-  timer: document.getElementById("timer-value"),
-  galacticCoins: document.getElementById("galactic-coins-value"),
-  question: document.getElementById("equation"),
-  answerInput: document.getElementById("answer"), // This now refers to the math-field element
-  submitButton: document.getElementById("submit"),
-  gameOverModal: document.getElementById("gameOverModal"),
-  finalScoreDisplay: document.getElementById("final-score-display"),
-  navbar: document.getElementById("navbar-brand"),
-  leaderboard: document.getElementById("leaderboard"),
-  skipButton: document.getElementById("skip-button"),
-  doubleScoreButton: document.getElementById("double-score-button"),
-  extraTimeButton: document.getElementById("extra-time-button"),
-  stats: document.getElementById("stats"),
-  milestoneHistory: document.getElementById("milestone-history"),
-  shopButton: document.getElementById("shop-button"),
-  shopModal: document.getElementById("shopModal"),
-  shopItemsContainer: document.getElementById("shop-items-container"),
-  authLinks: document.getElementById("auth-links"),
-  loginForm: document.getElementById("login-form"),
-  signupForm: document.getElementById("signup-form"),
-  logoutButton: document.getElementById("logout"),
-  profileUsername: document.getElementById("profile-username"),
-  profileEmail: document.getElementById("profile-email"),
-  profileHighScore: document.getElementById("profile-high-score"),
-  profileGamesPlayed: document.getElementById("profile-games-played"),
-  profileUserId: document.getElementById("profile-user-id"), // New: for displaying user ID
-  aiAssistantModal: document.getElementById("aiAssistantModal"), // New: AI Assistant modal
-  aiSolutionContent: document.getElementById("ai-solution-content"), // New: AI Solution content area
-  aiLoadingIndicator: document.getElementById("ai-loading-indicator") // New: AI Loading indicator
+    score: document.getElementById('score-value'),
+    highScore: document.getElementById('high-score-value'),
+    lives: document.getElementById('lives-value'),
+    timer: document.getElementById('timer-value'),
+    question: document.getElementById('equation'), // This will now correctly reference the <math-field>
+    answerInput: document.getElementById('answer'),
+    submitButton: document.getElementById('submit'),
+    gameOverModal: document.getElementById('gameOverModal'),
+    navbar: document.getElementById('navbar-brand'), // This might need adjustment based on index.html
+    leaderboardTableBody: document.getElementById('leaderboard-table-body'),
+    skipButton: document.getElementById('skip-button'),
+    doubleScoreButton: document.getElementById('double-score-button'),
+    totalQuestions: document.getElementById('total-questions'),
+    correctAnswers: document.getElementById('correct-answers'),
+    incorrectAnswers: document.getElementById('incorrect-answers'),
+    finalScore: document.getElementById('final-score'),
+    restartGameButton: document.getElementById('restart-game'),
+    // Auth related elements
+    authLinks: document.getElementById('auth-links'),
+    profileUsername: document.getElementById('username-display'),
+    profileEmail: document.getElementById('email-display'),
+    profileHighScore: document.getElementById('profile-high-score'),
+    profileGamesPlayed: document.getElementById('games-played'),
+    logoutButton: document.getElementById('logout'),
+    loginForm: document.getElementById('login-form'),
+    signupForm: document.getElementById('signup-form'),
+    // Solution Modal elements
+    solutionModal: document.getElementById('solutionModal'),
+    solutionContent: document.getElementById('solutionContent'),
+    closeSolutionModal: document.getElementById('close-solution-modal'),
+    solutionLoading: document.getElementById('solutionLoading'), // New element for loading indicator
 };
 
-// Audio for feedback (ensure these paths are correct or provide placeholder sounds)
-const correctSound = new Audio("sounds/correct.mp3");
-const wrongSound = new Audio("sounds/wrong.mp3");
-const coinSound = new Audio("sounds/coin.mp3");
-const purchaseSound = new Audio("sounds/purchase.mp3");
-
-/**
- * Updates the displayed score, high score, lives, and galactic coins in the UI.
- */
-function updateScoreDisplay() {
-  if (domElements.score) domElements.score.textContent = `Score: ${gameState.score}`;
-  if (domElements.lives) domElements.lives.textContent = `Lives: ${gameState.lives}`;
-  if (domElements.galacticCoins) domElements.galacticCoins.textContent = `Coins: ${gameState.galacticCoins}`;
-  if (gameState.score > gameState.highScore) {
-    gameState.highScore = gameState.score;
-    if (currentUserId) saveUserData(); // Persist new high score to Firestore
-  }
-  if (domElements.highScore) domElements.highScore.textContent = `High Score: ${gameState.highScore}`;
-  checkMilestones();
-}
-
-/**
- * Updates the text content of power-up buttons to reflect current counts.
- */
-function updatePowerUpsDisplay() {
-  if (domElements.skipButton) domElements.skipButton.textContent = `Skip (${gameState.powerUps.skip})`;
-  if (domElements.doubleScoreButton) domElements.doubleScoreButton.textContent = `Double Score (${gameState.powerUps.doubleScore})`;
-  if (domElements.extraTimeButton) domElements.extraTimeButton.textContent = `Extra Time (${gameState.powerUps.extraTime})`;
-}
-
-/**
- * Updates the detailed game statistics display in the UI.
- */
-function updateStatsDisplay() {
-  const { totalQuestions, correctAnswers, incorrectAnswers } = gameState.stats;
-  if (domElements.stats) {
-    domElements.stats.innerHTML = `
-      <h3 class="text-2xl font-semibold text-blue-300 mb-4">Game Statistics</h3>
-      <p><strong>Total Questions:</strong> ${totalQuestions}</p>
-      <p><strong>Correct Answers:</strong> ${correctAnswers}</p>
-      <p><strong>Incorrect Answers:</strong> ${incorrectAnswers}</p>
+// Helper function to show a custom modal message
+function showMessageModal(message) {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <p>${message}</p>
+            <button class="btn secondary close-modal">OK</button>
+        </div>
     `;
-  }
-}
-
-/**
- * Helper function to update the game score.
- * @param {number} value - The amount to add to the current score.
- */
-function updateScore(value) {
-  gameState.score += value;
-  updateScoreDisplay();
-  checkMilestones();
-}
-
-/**
- * Checks if any score or streak milestones have been reached.
- */
-function checkMilestones() {
-  Object.keys(gameState.milestones.scoreMilestones).forEach((milestone) => {
-    const milestoneValue = parseInt(milestone);
-    if (gameState.score >= milestoneValue && gameState.milestones.scoreMilestones[milestone]) {
-      const powerUp = gameState.milestones.scoreMilestones[milestone];
-      unlockMilestone(milestoneValue, powerUp, "score");
-      delete gameState.milestones.scoreMilestones[milestone];
-    }
-  });
-
-  Object.keys(gameState.milestones.streakMilestones).forEach((milestone) => {
-    const milestoneValue = parseInt(milestone);
-    if (gameState.stats.correctAnswers >= milestoneValue && gameState.milestones.streakMilestones[milestone]) {
-      const powerUp = gameState.milestones.streakMilestones[milestone];
-      unlockMilestone(milestoneValue, powerUp, "streak");
-      delete gameState.milestones.streakMilestones[milestone];
-    }
-  });
-}
-
-/**
- * Unlocks a specified power-up and records the milestone in history.
- */
-function unlockMilestone(value, powerUp, type) {
-  gameState.powerUps[powerUp]++;
-  gameState.milestoneHistory.push({ type, value, powerUp, timestamp: new Date().toISOString() });
-  showMilestoneNotification(powerUp, type, value);
-  updateMilestoneHistoryDisplay();
-  updatePowerUpsDisplay();
-  if (currentUserId) saveUserData(); // Persist power-up changes
-}
-
-/**
- * Displays a temporary notification for an unlocked milestone.
- */
-function showMilestoneNotification(powerUp, type, value) {
-  const notification = document.createElement("div");
-  notification.classList.add('fixed', 'top-10', 'left-1/2', '-translate-x-1/2', 'bg-green-600', 'text-white', 'p-4', 'rounded-lg', 'shadow-xl', 'z-50', 'text-center', 'animate-fadeInOut');
-  notification.innerHTML = `
-      <strong class="text-xl">Milestone Reached!</strong><br>
-      ${type.charAt(0).toUpperCase() + type.slice(1)} Milestone (${value})<br>
-      Gained 1 <em class="font-semibold">${powerUp.replace(/([A-Z])/g, ' $1').trim().toLowerCase()}</em> power-up!`;
-  document.body.appendChild(notification);
-
-  if (!document.getElementById('fadeInOutStyle')) {
-    const styleSheet = document.createElement("style");
-    styleSheet.id = 'fadeInOutStyle';
-    styleSheet.type = "text/css";
-    styleSheet.innerText = `
-      @keyframes fadeInOut {
-        0% { opacity: 0; transform: translate(-50%, -50px); }
-        10% { opacity: 1; transform: translate(-50%, 0); }
-        90% { opacity: 1; transform: translate(-50%, 0); }
-        100% { opacity: 0; transform: translate(-50%, -50px); }
-      }
-      .animate-fadeInOut {
-        animation: fadeInOut 3s forwards;
-      }
-    `;
-    document.head.appendChild(styleSheet);
-  }
-
-  setTimeout(() => notification.remove(), 3000);
-}
-
-/**
- * Updates the display of the milestone history section.
- */
-function updateMilestoneHistoryDisplay() {
-  if (domElements.milestoneHistory) {
-    domElements.milestoneHistory.innerHTML = '<h3 class="text-2xl font-semibold text-blue-300 mb-4">Milestone History</h3>';
-    if (gameState.milestoneHistory.length === 0) {
-      domElements.milestoneHistory.innerHTML += '<p class="text-gray-400">No milestones unlocked yet.</p>';
-      return;
-    }
-    gameState.milestoneHistory.forEach(({ type, value, powerUp, timestamp }) => {
-      const historyItem = document.createElement("div");
-      historyItem.classList.add('py-2', 'border-b', 'border-gray-600', 'last:border-b-0');
-      historyItem.innerHTML = `
-        <span class="font-semibold">${type.charAt(0).toUpperCase() + type.slice(1)} Milestone</span> (${value}):
-        +1 <em class="font-medium text-purple-300">${powerUp.replace(/([A-Z])/g, ' $1').trim().toLowerCase()}</em>
-        <span class="text-gray-400 text-sm block">${new Date(timestamp).toLocaleString()}</span>
-      `;
-      domElements.milestoneHistory.appendChild(historyItem);
+    document.body.appendChild(modal);
+    modal.querySelector('.close-modal').addEventListener('click', () => {
+        modal.remove();
     });
-  }
+    modal.style.display = 'block'; // Show the modal
 }
 
-/**
- * Handles the usage of a power-up.
- */
-function usePowerUp(type) {
-  if (gameState.powerUps[type] > 0) {
-    gameState.powerUps[type]--;
-    if (type === "skip") {
-      displayProblem();
-    } else if (type === "extraTime") {
-      gameState.timer += 30;
-      updateTimer();
-    } else if (type === "doubleScore") {
-      gameState.score += 20;
-      updateScoreDisplay();
+// Update Displayed Scores
+function updateScoreDisplay() {
+    const { score, highScore, lives } = gameState;
+    if (domElements.score) domElements.score.textContent = score;
+    if (domElements.lives) domElements.lives.textContent = lives;
+
+    if (score > highScore) {
+        gameState.highScore = score;
+        localStorage.setItem('highScore', score); // Update local storage
     }
-    updatePowerUpsDisplay();
-    if (currentUserId) saveUserData(); // Persist power-up changes
-  } else {
-    console.log(`No ${type} power-ups left!`);
-    const noPowerUpMessage = document.createElement('div');
-    noPowerUpMessage.classList.add('fixed', 'top-10', 'left-1/2', '-translate-x-1/2', 'bg-red-600', 'text-white', 'p-3', 'rounded-lg', 'shadow-xl', 'z-50', 'text-center', 'animate-fadeInOut');
-    noPowerUpMessage.textContent = `No ${type.replace(/([A-Z])/g, ' $1').trim().toLowerCase()} power-ups left!`;
-    document.body.appendChild(noPowerUpMessage);
-    setTimeout(() => noPowerUpMessage.remove(), 2000);
-  }
+    if (domElements.highScore) domElements.highScore.textContent = gameState.highScore;
+    checkMilestones();
 }
 
-// Wrapper functions for power-up buttons
+// Update Power-Ups Display
+function updatePowerUpsDisplay() {
+    if (domElements.skipButton) domElements.skipButton.textContent = `Skip (${gameState.powerUps.skip})`;
+    if (domElements.doubleScoreButton) domElements.doubleScoreButton.textContent = `Double Score (${gameState.powerUps.doubleScore})`;
+    // Extra time button might not exist in game.html, check for it
+    const extraTimeButton = document.getElementById('extra-time-button'); // Assuming an ID for this button
+    if (extraTimeButton) extraTimeButton.textContent = `Extra Time (${gameState.powerUps.extraTime})`;
+}
+
+// Update Game Stats Display
+function updateStatsDisplay() {
+    const { totalQuestions, correctAnswers, incorrectAnswers } = gameState.stats;
+    if (domElements.totalQuestions) domElements.totalQuestions.textContent = totalQuestions;
+    if (domElements.correctAnswers) domElements.correctAnswers.textContent = correctAnswers;
+    if (domElements.incorrectAnswers) domElements.incorrectAnswers.textContent = incorrectAnswers;
+}
+
+// Enhanced Game State Variables
+function updateScore(value) {
+    gameState.score += value;
+    localStorage.setItem('score', gameState.score); // Update local storage for score
+    if (domElements.score) domElements.score.textContent = gameState.score;
+    checkMilestones();
+}
+
+// Check for Milestones
+function checkMilestones() {
+    // Check score-based milestones
+    Object.keys(gameState.milestones.scoreMilestones).forEach((milestone) => {
+        if (gameState.score >= milestone && gameState.milestones.scoreMilestones[milestone]) {
+            const powerUp = gameState.milestones.scoreMilestones[milestone];
+            unlockMilestone(milestone, powerUp, 'score');
+            delete gameState.milestones.scoreMilestones[milestone]; // Remove milestone once unlocked
+        }
+    });
+
+    // Check streak-based milestones
+    Object.keys(gameState.milestones.streakMilestones).forEach((milestone) => {
+        if (gameState.stats.correctAnswers >= milestone && gameState.milestones.streakMilestones[milestone]) {
+            const powerUp = gameState.milestones.streakMilestones[milestone];
+            unlockMilestone(milestone, powerUp, 'streak');
+            delete gameState.milestones.streakMilestones[milestone]; // Remove milestone once unlocked
+        }
+    });
+}
+
+// Unlock Milestone
+function unlockMilestone(value, powerUp, type) {
+    gameState.powerUps[powerUp]++;
+    gameState.milestoneHistory.push({ type, value, powerUp });
+    showMilestoneNotification(powerUp, type, value);
+    updatePowerUpsDisplay(); // Update power-up count on display
+}
+
+// Show Milestone Notification
+function showMilestoneNotification(powerUp, type, value) {
+    const notification = document.createElement('div');
+    notification.innerHTML = `
+        <strong>Milestone Reached!</strong><br>
+        ${type.charAt(0).toUpperCase() + type.slice(1)} Milestone (${value})<br>
+        Gained 1 <em>${powerUp}</em> power-up!`;
+    notification.style.cssText = `
+        position: fixed;
+        top: 10%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: #4caf50;
+        color: white;
+        padding: 10px 20px;
+        border-radius: 5px;
+        z-index: 1000;
+        text-align: center;
+        animation: fadeOut 3s forwards;
+    `;
+    document.body.appendChild(notification);
+    setTimeout(() => notification.remove(), 3000);
+}
+
+// Power-Up Usage functions
 function useSkip() {
-  usePowerUp("skip");
+    usePowerUp('skip');
 }
+
 function useDoubleScore() {
-  usePowerUp("doubleScore");
+    usePowerUp('doubleScore');
 }
+
 function useExtraTime() {
-  usePowerUp("extraTime");
+    usePowerUp('extraTime');
 }
 
-/**
- * Starts or restarts the game timer.
- */
-function startTimer() {
-  clearInterval(gameState.timerInterval);
-  gameState.timerInterval = setInterval(() => {
-    gameState.timer--;
+// Power-Up Usage
+function usePowerUp(type) {
+    if (gameState.powerUps[type] > 0) {
+        gameState.powerUps[type]--;
+        if (type === 'skip') newProblem();
+        if (type === 'extraTime') gameState.timer += 30;
+        if (type === 'doubleScore') gameState.score += 20; // Applies instantly
+        updateDisplay();
+    } else {
+        showMessageModal(`No ${type} power-ups left!`);
+    }
+}
+
+// Update all display elements
+function updateDisplay() {
+    updateScoreDisplay();
+    updatePowerUpsDisplay();
+    updateStatsDisplay();
     updateTimer();
-    if (gameState.timer <= 0) {
-      endGame();
-    }
-  }, 1000);
 }
 
-/**
- * Updates the timer display.
- */
-function updateTimer() {
-  if (domElements.timer) {
-    domElements.timer.textContent = `Time: ${gameState.timer}`;
-  }
+// Timer Functionality
+function startTimer() {
+    clearInterval(gameState.timerInterval);
+    gameState.timerInterval = setInterval(() => {
+        gameState.timer--;
+        if (domElements.timer) domElements.timer.textContent = gameState.timer;
+        if (gameState.timer <= 0) {
+            endGame();
+        }
+    }, 1000);
 }
 
-/**
- * Generates a random math problem based on selected question types and difficulty.
- */
+// Problem Generation
 function generateProblem(type) {
-  const differentiationProblems = getDifferentiationProblems();
-  const integrationProblems = getIntegrationProblems();
+    const problems = {
+        diff: getDifferentiationProblems(),
+        antiderivative: getIntegrationProblems(),
+    };
+    const selectedType = type || gameState.settings.questionTypes[Math.floor(Math.random() * gameState.settings.questionTypes.length)];
+    const difficultyLevel = parseInt(gameState.settings.difficulty); // Ensure difficulty is a number
 
-  const problemsByType = {
-    diff: differentiationProblems,
-    antiderivative: integrationProblems,
-  };
-
-  const currentDifficulty = gameState.settings.difficulty;
-
-  const availableQuestionTypes = [];
-  if (gameState.settings.diff) {
-    availableQuestionTypes.push("diff");
-  }
-  if (gameState.settings.int) {
-    availableQuestionTypes.push("antiderivative");
-  }
-
-  if (availableQuestionTypes.length === 0) {
-    availableQuestionTypes.push("diff");
-    console.warn("No question types selected in settings. Defaulting to Differentiation.");
-  }
-
-  const selectedType = type || availableQuestionTypes[Math.floor(Math.random() * availableQuestionTypes.length)];
-
-  const problemSetForDifficulty = problemsByType[selectedType][currentDifficulty] || problemsByType[selectedType][1];
-
-  if (!problemSetForDifficulty || problemSetForDifficulty.length === 0) {
-    console.error(`No problems found for type: ${selectedType} and difficulty: ${currentDifficulty}. Generating a fallback problem.`);
-    return { question: "$$\\frac{d}{dx}(x)$$", answer: "$$1$$" };
-  }
-
-  return problemSetForDifficulty[Math.floor(Math.random() * problemSetForDifficulty.length)];
-}
-
-/**
- * Creates a new problem and displays it in the UI using MathLive.
- */
-function newProblem() {
-  const problem = generateProblem();
-  // Set the value for the display math-field
-  if (domElements.question && domElements.question.querySelector('math-field')) {
-    domElements.question.querySelector('math-field').value = problem.question;
-  } else if (domElements.question) {
-    // If math-field doesn't exist, create it
-    const mathField = document.createElement("math-field");
-    mathField.value = problem.question;
-    mathField.readOnly = true;
-    mathField.virtualKeyboardMode = "off";
-    mathField.showMenu = false;
-    domElements.question.innerHTML = ""; // Clear existing content
-    domElements.question.appendChild(mathField);
-  }
-  console.log("New Problem:", problem.question);
-
-  // Clear the input math-field
-  if (domElements.answerInput) {
-    domElements.answerInput.value = "";
-    domElements.answerInput.classList.remove("correct-answer-feedback", "incorrect-answer-feedback");
-  }
-  return problem;
-}
-
-/**
- * Displays a new problem, increments total questions, and updates stats.
- */
-function displayProblem() {
-  gameState.currentProblem = newProblem();
-  gameState.stats.totalQuestions++;
-  updateStatsDisplay();
-  if (currentUserId) saveUserData(); // Persist stats
-}
-
-/**
- * Validates the user's answer against the current problem's answer.
- */
-function validateAnswer() {
-  if (!gameState.currentProblem || !domElements.answerInput) return;
-
-  // Get the value from the MathLive input field
-  const userAnswer = domElements.answerInput.value.trim();
-  const correctAnswer = gameState.currentProblem.answer.trim().replace(/\s/g, '').replace(/\+C/g, '');
-  const cleanedUserAnswer = userAnswer.trim().replace(/\s/g, '').replace(/\+C/g, '');
-
-  if (cleanedUserAnswer === correctAnswer) {
-    handleCorrectAnswer();
-  } else {
-    handleIncorrectAnswer();
-  }
-}
-
-/**
- * Handles a correct answer: increments score, adds time, plays sound,
- * updates stats, and displays a new problem.
- */
-function handleCorrectAnswer() {
-  gameState.score += 10;
-  gameState.galacticCoins += 5;
-  gameState.timer += 10;
-  correctSound.play().catch(e => console.error("Error playing sound:", e));
-  coinSound.play().catch(e => console.error("Error playing coin sound:", e));
-  gameState.stats.correctAnswers++;
-  if (domElements.answerInput) {
-    domElements.answerInput.classList.add("correct-answer-feedback");
-  }
-  setTimeout(() => {
-    if (domElements.answerInput) {
-      domElements.answerInput.classList.remove("correct-answer-feedback");
-      domElements.answerInput.value = ""; // Clear input after feedback
+    let problemSet;
+    switch (difficultyLevel) {
+        case 1: problemSet = problems[selectedType].easy; break;
+        case 2: problemSet = problems[selectedType].medium; break;
+        case 3: problemSet = problems[selectedType].hard; break;
+        case 4: problemSet = problems[selectedType].insane; break;
+        case 5: problemSet = problems[selectedType].impossible; break;
+        case 6: problemSet = problems[selectedType].legend; break;
+        case 7: problemSet = problems[selectedType].goat; break;
+        case 8: problemSet = [...problems[selectedType].easy, ...problems[selectedType].medium, ...problems[selectedType].hard, ...problems[selectedType].insane, ...problems[selectedType].impossible, ...problems[selectedType].legend, ...problems[selectedType].goat]; shuffleArray(problemSet); break;
+        default: problemSet = problems[selectedType].easy; // Default to easy
     }
+
+    if (!problemSet || problemSet.length === 0) {
+        console.error("No problems found for selected type and difficulty. Defaulting to easy differentiation.");
+        return problems['diff'].easy[0]; // Fallback to a default problem
+    }
+
+    return problemSet[Math.floor(Math.random() * problemSet.length)];
+}
+
+// Function to create a new problem
+function newProblem() {
+    const problem = generateProblem();
+    // Update the MathLive element's value directly
+    if (domElements.question) {
+        domElements.question.value = problem.question;
+    }
+
+    console.log(problem.question);
+
+    if (domElements.answerInput) domElements.answerInput.value = ''; // Clear the input field
+    if (domElements.question) domElements.question.classList.remove('incorrect');
+    return problem;
+}
+
+
+// Differentiation problems categorized by difficulty
+function getDifferentiationProblems() {
+    const easy = [
+        { question: "\\frac{d}{dx}(x^2)", answer: "2x" },
+        { question: "\\frac{d}{dx}(2x^2)", answer: "4x" },
+        { question: "\\frac{d}{dx}(3x^2)", answer: "6x" },
+        { question: "\\frac{d}{dx}(x)", answer: "1" },
+        { question: "\\frac{d}{dx}(8)", answer: "0" },
+        { question: "\\frac{d}{dx}(15)", answer: "0" },
+        { question: "\\frac{d}{dx}(20x)", answer: "20" },
+        { question: "\\frac{d}{dx}(12x^2)", answer: "24x" },
+    ];
+
+    const medium = [
+        { question: "\\frac{d}{dx}(4x^3)", answer: "12x^2" },
+        { question: "\\frac{d}{dx}(13x^4)", answer: "52x^3"},
+        { question: "\\frac{d}{dx}(7x^5)", answer: "35x^4" },
+        { question: "\\frac{d}{dx}(9x^6)", answer: "54x^5" },
+        { question: "\\frac{d}{dx}(11x^7)", answer: "77x^6" },
+        { question: "\\frac{d}{dx}(5x^8)", answer: "40x^7" },
+        { question: "\\frac{d}{dx}(3x^9)", answer: "27x^8" },
+        { question: "\\frac{d}{dx}(2x^{10})", answer: "20x^9" },
+        { question: "\\frac{d}{dx}(x^{11})", answer: "11x^{10}" },
+        { question: "\\frac{d}{dx}(x^2 + 2x)", answer: "2x+2" },
+        { question: "\\frac{d}{dx}(2x^2 + 4x)", answer: "4x+4" },
+        { question: "\\frac{d}{dx}(3x^2 + 6x)", answer: "6x+6" },
+        { question: "\\frac{d}{dx}(x + 2x^2)", answer: "1+4x" },
+        { question: "\\frac{d}{dx}(2x + 4x^2)", answer: "2+8x" },
+        { question: "\\frac{d}{dx}(3x + 6x^2)", answer: "3+12x" },
+        { question: "\\frac{d}{dx}(4x^2 + 8x)", answer: "8x+8" },
+        { question: "\\frac{d}{dx}(5x^2 + 10x)", answer: "10x+10" },
+        { question: "\\frac{d}{dx}(6x^2 + 12x)", answer: "12x+12" },
+        { question: "\\frac{d}{dx}(7x^2 + 14x)", answer: "14x+14" },
+        { question: "\\frac{d}{dx}(8x^2 + 16x)", answer: "16x+16" },
+        { question: "\\frac{d}{dx}(9x^2 + 18x)", answer: "18x+18" },
+        { question: "\\frac{d}{dx}(10x^2 + 20x)", answer: "20x+20" },
+        { question: "\\frac{d}{dx}(11x^2 + 22x)", answer: "22x+22" },
+        { question: "\\frac{d}{dx}(12x^2 + 24x)", answer: "24x+24" },
+        { question: "\\frac{d}{dx}(13x^2 + 26x)", answer: "26x+26" },
+        { question: "\\frac{d}{dx}(14x^2 + 28x)", answer: "28x+28" },
+        { question: "\\frac{d}{dx}(6x^3)", answer: "18x^2" },
+        { question: "\\frac{d}{dx}(3x^4)", answer: "12x^3" },
+        { question: "\\frac{d}{dx}(x^3)", answer: "3x^2" },
+    ];
+
+    const hard = [
+        { question: "\\frac{d}{dx}(x^{10})", answer: "10x^9" },
+        { question: "\\frac{d}{dx}(x^{11})", answer: "11x^{10}" },
+        { question: "\\frac{d}{dx}(e^x)", answer: "e^x" },
+        { question: "\\frac{d}{dx}(sin(x))", answer: "cos(x)" },
+        { question: "\\frac{d}{dx}(cos(x))", answer: "-sin(x)" },
+        { question: "\\frac{d}{dx}(tan(x))", answer: "sec^2(x)" },
+        { question: "\\frac{d}{dx}(ln(x))", answer: "\\frac{1}{x}" },
+        { question: "\\frac{d}{dx}(e^{2x})", answer: "2e^{2x}" },
+        { question: "\\frac{d}{dx}(sin(2x))", answer: "2cos(2x)" },
+        { question: "\\frac{d}{dx}(cos(2x))", answer: "-2sin(2x)" },
+        { question: "\\frac{d}{dx}(tan(2x))", answer: "2sec^2(2x)" },
+        { question: "\\frac{d}{dx}(ln(2x))", answer: "\\frac{1}{x}" },
+        { question: "\\frac{d}{dx}(e^{3x})", answer: "3e^{3x}" },
+        { question: "\\frac{d}{dx}(sin(3x))", answer: "3cos(3x)" },
+        { question: "\\frac{d}{dx}(cos(3x))", answer: "-3sin(3x)" },
+        { question: "\\frac{d}{dx}(tan(3x))", answer: "3sec^2(3x)" },
+        { question: "\\frac{d}{dx}(ln(3x))", answer: "\\frac{1}{x}" },
+        { question: "\\frac{d}{dx}(e^{4x})", answer: "4e^{4x}" },
+        { question: "\\frac{d}{dx}(sin(4x))", answer: "4cos(4x)" },
+        { question: "\\frac{d}{dx}(cos(4x))", answer: "-4sin(4x)" },
+        { question: "\\frac{d}{dx}(tan(4x))", answer: "4sec^2(4x)" },
+        { question: "\\frac{d}{dx}(ln(4x))", answer: "\\frac{1}{x}" },
+        { question: "\\frac{d}{dx}(e^{5x})", answer: "5e^{5x}" },
+        { question: "\\frac{d}{dx}(sin(5x))", answer: "5cos(5x)" },
+        { question: "\\frac{d}{dx}(x^5 + 5)", answer: "5x^4" },
+        { question: "\\frac{d}{dx}(x^6 - 3x^2 + 2)", answer: "6x^5-6x" },
+        { question: "\\frac{d}{dx}(x^7 + 2x^3 + 3)", answer: "7x^6+6x^2" },
+        { question: "\\frac{d}{dx}(x^8 - 4x^4 + 5)", answer: "8x^7-16x^3" },
+        { question: "\\frac{d}{dx}(x^9 + 3x^5 + 7)", answer: "9x^8+15x^4" },
+        { question: "\\frac{d}{dx}(x^{10} - 2x^6 + 9)", answer: "10x^9-12x^5" },
+        { question: "\\frac{d}{dx}(x^{11} + 4x^7 + 11)", answer: "11x^{10}+28x^6" },
+        { question: "\\frac{d}{dx}(x^{12} - 3x^8 + 13)", answer: "12x^{11}-24x^7" },
+        { question: "\\frac{d}{dx}(x^{13} + 5x^9 + 17)", answer: "13x^{12}+45x^8" },
+        { question: "\\frac{d}{dx}(x^{14} - 2x^{10} + 19)", answer: "14x^{13}-20x^9" },
+        { question: "\\frac{d}{dx}(x^{15} + 3x^{11} + 23)", answer: "15x^{14}+33x^{10}" },
+        { question: "\\frac{d}{dx}(x^{16} - 4x^{12} + 29)", answer: "16x^{15}-48x^{11}" },
+        { question: "\\frac{d}{dx}(x^{17} + 5x^{13} + 31)", answer: "17x^{16}+65x^{12}" },
+        { question: "\\frac{d}{dx}(x^{18} - 2x^{14} + 37)", answer: "18x^{17}-28x^{13}" },
+        { question: "\\frac{d}{dx}(x^{19} + 3x^{15} + 41)", answer: "19x^{18}+45x^{14}" },
+        { question: "\\frac{d}{dx}(x^{20} - 4x^{16} + 43)", answer: "20x^{19}-64x^{15}" },
+        { question: "\\frac{d}{dx}(x^{21} + 5x^{17} + 47)", answer: "21x^{20}+85x^{16}" },
+        { question: "\\frac{d}{dx}(x^{22} - 2x^{18} + 53)", answer: "22x^{21}-36x^{17}" },
+        { question: "\\frac{d}{dx}(x^{23} + 3x^{19} + 59)", answer: "23x^{22}+57x^{18}" },
+        { question: "\\frac{d}{dx}(x^{24} - 4x^{20} + 61)", answer: "24x^{23}-80x^{19}" },
+        { question: "\\frac{d}{dx}(x^{25} + 5x^{21} + 67)", answer: "25x^{24}+105x^{20}" },
+        { question: "\\frac{d}{dx}(x^{26} - 2x^{22} + 71)", answer: "26x^{25}-44x^{21}" },
+        { question: "\\frac{d}{dx}(x^{27} + 3x^{23} + 73)", answer: "27x^{26}+69x^{22}" },
+        { question: "\\frac{d}{dx}(x^{28} - 4x^{24} + 79)", answer: "28x^{27}-96x^{23}" },
+        { question: "\\frac{d}{dx}(x^{29} + 5x^{25} + 83)", answer: "29x^{28}+125x^{24}" },
+        { question: "\\frac{d}{dx}(x^{30} - 2x^{26} + 89)", answer: "30x^{29}-52x^{25}" },
+        { question: "\\frac{d}{dx}(x^{31} + 3x^{27} + 97)", answer: "31x^{30}+81x^{26}" },
+        { question: "\\frac{d}{dx}(x^{32} - 4x^{28} + 101)", answer: "32x^{31}-112x^{27}" },
+        { question: "\\frac{d}{dx}(x^{33} + 5x^{29} + 103)", answer: "33x^{32}+145x^{28}" },
+        { question: "\\frac{d}{dx}(x^{34} - 2x^{30} + 107)", answer: "34x^{33}-60x^{29}" },
+        { question: "\\frac{d}{dx}(x^{35} + 3x^{31} + 109)", answer: "35x^{34}+93x^{30}" },
+        { question: "\\frac{d}{dx}(x^{36} - 4x^{32} + 113)", answer: "36x^{35}-128x^{31}" },
+        { question: "\\frac{d}{dx}(x^{37} + 5x^{33} + 127)", answer: "37x^{36}+165x^{32}" },
+        { question: "\\frac{d}{dx}(x^{38} - 2x^{34} + 131)", answer: "38x^{37}-68x^{33}" },
+        { question: "\\frac{d}{dx}(x^{39} + 3x^{35} + 137)", answer: "39x^{38}+105x^{34}" },
+        { question: "\\frac{d}{dx}(x^{40} - 4x^{36} + 139)", answer: "40x^{39}-144x^{35}" },
+        { question: "\\frac{d}{dx}(x^{41} + 5x^{37} + 149)", answer: "41x^{40}+185x^{36}" },
+        { question: "\\frac{d}{dx}(x^{42} - 2x^{38} + 151)", answer: "42x^{41}-76x^{37}" },
+        { question: "\\frac{d}{dx}(x^{43} + 3x^{39} + 157)", answer: "43x^{42}+117x^{38}" },
+        { question: "\\frac{d}{dx}(x^{44} - 4x^{40} + 163)", answer: "44x^{43}-160x^{39}" },
+        { question: "\\frac{d}{dx}(x^{45} + 5x^{41} + 167)", answer: "45x^{44}+205x^{40}" },
+        { question: "\\frac{d}{dx}(x^{46} - 2x^{42} + 173)", answer: "46x^{45}-84x^{41}" },
+        { question: "\\frac{d}{dx}(x^{47} + 3x^{43} + 179)", answer: "47x^{46}+129x^{42}" },
+        { question: "\\frac{d}{dx}(x^{48} - 4x^{44} + 181)", answer: "48x^{47}-176x^{43}" },
+        { question: "\\frac{d}{dx}(x^{49} + 5x^{45} + 191)", answer: "49x^{48}+225x^{44}" },
+    ];
+    const insane = [
+        { question: "\\frac{d}{dx}(x^2e^x)", answer: "2xe^x + x^2e^x" },
+        { question: "\\frac{d}{dx}(\\ln(x^2 + 1))", answer: "\\frac{2x}{x^2 + 1}" },
+        { question: "\\frac{d}{dx}(\\sin(x^3))", answer: "3x^2\\cos(x^3)" },
+        { question: "\\frac{d}{dx}(\\tan(2x))", answer: "2\\sec^2(2x)" },
+        { question: "\\frac{d}{dx}(e^{x^2})", answer: "2xe^{x^2}" },
+        { question: "\\frac{d}{dx}(x^3\\ln(x))", answer: "3x^2\\ln(x) + x^2" },
+        { question: "\\frac{d}{dx}(\\frac{x}{x^2 + 1})", answer: "\\frac{1 - x^2}{(x^2 + 1)^2}" },
+        { question: "\\frac{d}{dx}(\\sqrt{x^4 + 2})", answer: "\\frac{4x^3}{2\\sqrt{x^4 + 2}}" },
+        { question: "\\frac{d}{dx}(\\cos^2(x))", answer: "-2\\cos(x)\\sin(x)" },
+        { question: "\\frac{d}{dx}(x^x)", answer: "x^x(\\ln(x) + 1)" },
+        { question: "\\frac{d}{dx}(\\arcsin(x^2))", answer: "\\frac{2x}{\\sqrt{1 - x^4}}" },
+        { question: "\\frac{d}{dx}(\\ln(\\sin(x)))", answer: "\\cot(x)" },
+    ];
+
+    const impossible = [
+        { question: "\\frac{d}{dx}(x^x^x)", answer: "No elementary solution" },
+        { question: "\\frac{d}{dx}(e^{e^x})", answer: "e^{e^x}e^x" },
+        { question: "\\frac{d}{dx}(\\ln(\\ln(\\ln(x))))", answer: "\\frac{1}{\\ln(\\ln(x))\\ln(x)x}" },
+        { question: "\\frac{d}{dx}(\\sin(\\cos(\\tan(x))))", answer: "-\\cos(\\cos(\\tan(x)))\\sin(\\tan(x))\\sec^2(x)" },
+        { question: "\\frac{d}{dx}(x^{x^2})", answer: "x^{x^2}(2x\\ln(x) + 1)" },
+        { question: "\\frac{d}{dx}(\\arctan(\\sqrt{x^2 + 1}))", answer: "\\frac{x}{(x^2 + 1)\\sqrt{x^2 + 1}}" },
+        { question: "\\frac{d}{dx}(e^{x\\sin(x)})", answer: "e^{x\\sin(x)}(\\sin(x) + x\\cos(x))" },
+    ];
+
+    const legend = [
+        { question: "\\frac{d}{dx}(\\sin(x^2)\\cos(x^3))", answer: "2x\\cos(x^2)\\cos(x^3) - 3x^2\\sin(x^2)\\sin(x^3)" },
+        { question: "\\frac{d}{dx}(\\sqrt{x^3 + e^x})", answer: "\\frac{3x^2 + e^x}{2\\sqrt{x^3 + e^x}}" },
+        { question: "\\frac{d}{dx}(\\frac{x^3}{\\sin(x)})", answer: "\\frac{3x^2\\sin(x) - x^3\\cos(x)}{\\sin^2(x)}" },
+        { question: "\\frac{d}{dx}(\\arcsin(x)\\cdot\\arctan(x))", answer: "\\arctan(x)\\sqrt{1 - x^2} + \\arcsin(x)/(1 + x^2)" },
+    ];
+
+    const goat = [
+        { question: "\\frac{d}{dx}(x^2\\ln(x^2\\sin(x)))", answer: "2x\\ln(x^2\\sin(x)) + 2x\\cot(x) + 2x" },
+        { question: "\\frac{d}{dx}(\\sin^2(x^2)\\cos^2(x^3))", answer: "4x\\cos(x^2)\\sin(x^2)\\cos^2(x^3) - 6x^2\\sin^2(x^2)\\sin(x^3)\\cos(x^3)" },
+        { question: "\\frac{d}{dx}(\\ln(x\\cos(x))^x)", answer: "\\ln(x\\cos(x))^x(\\ln(\\ln(x\\cos(x))) + \\cot(x) + 1/x)" },
+        { question: "\\frac{d}{dx}(\\tan(x)^{\\tan(x)})", answer: "\\tan(x)^{\\tan(x)}(\\ln(\\tan(x))\\sec^2(x) + \\tan(x))" },
+        { question: "\\frac{d}{dx}(e^{x\\sin(x^2)})", answer: "e^{x\\sin(x^2)}(\\sin(x^2) + 2x^2\\cos(x^2))" },
+        { question: "\\frac{d}{dx}(x\\uparrow\\uparrow x)", answer: "x\\uparrow\\uparrow x(\\ln(x) + x)" },
+        { question: "\\frac{d}{dx}((x\\uparrow\\uparrow x)^x)", answer: "(x\\uparrow\\uparrow x)^x(\\ln(x\\uparrow\\uparrow x) + x\\ln(x))" },
+        { question: "\\frac{d}{dx}(\\ln(x)\\uparrow\\uparrow x)", answer: "(\\ln(x)\\uparrow\\uparrow x)(\\frac{1}{x} + x\\ln(\\ln(x)))" },
+    ];
+
+    return { easy, medium, hard, insane, impossible, legend, goat };
+}
+
+// Integration problems categorized by difficulty
+function getIntegrationProblems() {
+    const easy = [
+        { question: "\\int x \\, dx", answer: "\\frac{x^2}{2}+C" },
+        { question: "\\int 5 \\, dx", answer: "5x+C" },
+    ];
+
+    const medium = [
+        { question: "\\int 4x^3 \\, dx", answer: "x^4+C" },
+        { question: "\\int x^4 \\, dx", answer: "\\frac{x^5}{5}+C" },
+        { question: "\\int x^3 + 2x \\, dx", answer: "\\frac{x^4}{4}+x^2+C" },
+        { question: "\\int 8x^2 \\, dx", answer: "\\frac{8x^3}{3}+C" },
+        { question: "\\int 20x^3 \\, dx", answer: "5x^4+C" },
+        { question: "\\int 50x^3 \\, dx", answer: "25x^4+C" },
+    ];
+
+    const hard = [
+        { question: "\\int x^5 + 3 \\, dx", answer: "\\frac{x^6}{6}+3x+C" },
+        { question: "\\int e^{-x} \\cdot \\cos(x) \\, dx", answer: "\\frac{-e^{-x}(\\cos(x) + \\sin(x))}{2} + C" },
+        { question: "\\int \\frac{x}{x^2 + 1} \\, dx", answer: "0.5\\ln(x^2 + 1) + C" },
+        { question: "\\int x^2 \\cdot e^{x^2} \\, dx", answer: "\\frac{1}{2}e^{x^2}(x^2 - 1) + C" },
+        { question: "\\int x^3 \\, dx", answer: "\\frac{x^4}{4} + C" },
+        { question: "\\int \\sec(x)^2 \\, dx", answer: "\\tan(x) + C" },
+        { question: "\\int x \\cdot e^x \\, dx", answer: "(x - 1)e^x + C" },
+    ];
+
+    const insane = [
+        { question: "\\int \\frac{e^x}{1 + e^{2x}} \\, dx", answer: "\\frac{1}{2}\\ln|1 + e^{2x}| + C" },
+        { question: "\\int \\frac{\\ln(x)}{x} \\, dx", answer: "\\frac{(\\ln(x))^2}{2} + C" },
+        { question: "\\int x^2 \\cdot e^{-x^2} \\, dx", answer: "-\\frac{1}{2}e^{-x^2}(x^2 + 1) + C" },
+        { question: "\\int \\frac{1}{\\sqrt{x^4 + 1}} \\, dx", answer: "Elliptic substitution required" },
+        { question: "\\int \\sin(x^2) \\, dx", answer: "Requires Fresnel functions" },
+        { question: "\\int e^x \\sin(x) \\, dx", answer: "\\frac{1}{2}e^x(\\sin(x) - \\cos(x)) + C" },
+        { question: "\\int \\frac{1}{x \\ln(x)} \\, dx", answer: "\\ln|\\ln(x)| + C" },
+        { question: "\\int \\frac{x}{\\sqrt{x^2 + a^2}} \\, dx", answer: "\\sqrt{x^2 + a^2} - a\\ln(x + \\sqrt{x^2 + a^2}) + C" },
+        { question: "\\int x \\arcsin(x) \\, dx", answer: "\\frac{x \\arcsin(x)}{2} - \\frac{\\sqrt{1 - x^2}}{2} + C" },
+        { question: "\\int \\tan(x)^2 \\, dx", answer: "\\tan(x) - x + C" },
+    ];
+
+    const impossible = [
+        { question: "\\int e^{x^2} \\, dx", answer: "No elementary solution" },
+        { question: "\\int \\frac{1}{\\ln(x)} \\, dx", answer: "No elementary solution" },
+        { question: "\\int \\sin(x^2) \\cdot e^{x^3} \\, dx", answer: "No elementary solution" },
+        { question: "\\int \\sqrt{\\tan(x)} \\, dx", answer: "No elementary solution" },
+        { question: "\\int x^x \\, dx", answer: "No elementary solution" },
+        { question: "\\int \\sqrt{x^4 + 1} \\, dx", answer: "No elementary solution" },
+        { question: "\\int e^{x^2} \\cdot \\ln(x) \\, dx", answer: "No elementary solution" },
+        { question: "\\int \\frac{1}{\\sqrt{x^5 + 1}} \\, dx", answer: "No elementary solution" },
+        { question: "\\int \\arctan(x^2) \\, dx", answer: "No elementary solution" },
+        { question: "\\int \\ln(x^2 + 1) \\, dx", answer: "No elementary solution" },
+    ];
+
+    return { easy, medium, hard, insane, impossible };
+}
+
+
+// Display New Problem
+function displayProblem() {
+    gameState.currentProblem = newProblem();
+    if (domElements.answerInput) domElements.answerInput.value = '';
+    gameState.stats.totalQuestions++;
+    updateStatsDisplay();
+    updateTimer();
+}
+
+// Answer Validation
+function validateAnswer() {
+    const userAnswer = domElements.answerInput ? domElements.answerInput.value.trim() : '';
+    const correctAnswer = gameState.currentProblem ? gameState.currentProblem.answer.trim() : '';
+
+    if (userAnswer === correctAnswer) {
+        handleCorrectAnswer();
+    } else {
+        handleIncorrectAnswer();
+    }
+}
+
+function handleCorrectAnswer() {
+    gameState.score += 10;
+    gameState.timer += 10;
+    const correctSound = document.getElementById('correctSound');
+    if (correctSound) correctSound.play();
+    gameState.stats.correctAnswers++;
     updateScoreDisplay();
     displayProblem();
-  }, 500);
-  if (currentUserId) saveUserData(); // Persist stats and coins
 }
 
-/**
- * Handles an incorrect answer: decrements lives, plays sound,
- * updates stats, and checks for game over.
- */
 async function handleIncorrectAnswer() {
-  gameState.lives--;
-  wrongSound.play().catch(e => console.error("Error playing sound:", e));
-  gameState.stats.incorrectAnswers++;
-  if (domElements.answerInput) {
-    domElements.answerInput.classList.add("incorrect-answer-feedback");
-  }
-
-  // Show AI Assistant modal
-  if (gameState.currentProblem) {
-    showAIAssistantModal(); // Show loading state first
-    const solution = await generateAISolution(gameState.currentProblem);
-    domElements.aiSolutionContent.innerHTML = solution; // Update with actual solution
-    // Ensure MathLive renders the LaTeX
-    if (typeof MathLive !== 'undefined') {
-      MathLive.renderMathInElement(domElements.aiSolutionContent);
-    }
-    domElements.aiLoadingIndicator.classList.add('hidden'); // Hide loading indicator
-  }
-
-  setTimeout(() => {
-    if (domElements.answerInput) {
-      domElements.answerInput.classList.remove("incorrect-answer-feedback");
-      domElements.answerInput.value = ""; // Clear input after feedback
-    }
+    gameState.lives--;
+    const wrongSound = document.getElementById('wrongSound');
+    if (wrongSound) wrongSound.play();
+    gameState.stats.incorrectAnswers++;
     updateScoreDisplay();
-    if (gameState.lives <= 0) {
-      endGame();
-    } else {
-      // If game is not over, display next problem after a short delay
-      // The AI modal will remain open until closed by user
-      // displayProblem(); // This will be called after closing AI modal
+
+    // Show step-by-step solution
+    if (gameState.currentProblem) {
+        await getStepByStepSolution(gameState.currentProblem);
     }
-  }, 500);
-  if (currentUserId) saveUserData(); // Persist stats
+
+    if (gameState.lives <= 0) endGame();
 }
 
-/**
- * Adjusts game difficulty based on the numeric slider value from settings.
- */
-function adjustGameDifficulty(difficultyValue) {
-  let diffLabel;
-  switch (difficultyValue) {
-    case 1: // Easy
-      diffLabel = "easy";
-      gameState.timer = 180;
-      gameState.lives = 15;
-      break;
-    case 2: // Medium
-      diffLabel = "medium";
-      gameState.timer = 120;
-      gameState.lives = 10;
-      break;
-    case 3: // Hard
-      diffLabel = "hard";
-      gameState.timer = 90;
-      gameState.lives = 7;
-      break;
-    case 4: // Insane
-      diffLabel = "insane";
-      gameState.timer = 60;
-      gameState.lives = 5;
-      break;
-    case 5: // Impossible
-      diffLabel = "impossible";
-      gameState.timer = 45;
-      gameState.lives = 3;
-      break;
-    default:
-      console.error("Unknown difficulty level. Defaulting to medium.");
-      diffLabel = "medium";
-      gameState.timer = 120;
-      gameState.lives = 10;
-  }
-  gameState.settings.difficultyLabel = diffLabel;
-  updateTimer();
-  updateScoreDisplay();
-}
-
-/**
- * Ends the game: clears timer, displays final score, shows game over modal,
- * and updates the leaderboard.
- */
-function endGame() {
-  clearInterval(gameState.timerInterval);
-  const finalScore = gameState.score;
-  if (domElements.finalScoreDisplay) {
-    domElements.finalScoreDisplay.textContent = finalScore; // Updated to directly set textContent
-  }
-  if (domElements.gameOverModal) {
-    domElements.gameOverModal.classList.remove("hidden");
-    domElements.gameOverModal.classList.add("show");
-  }
-  updateLeaderboard(finalScore);
-  if (currentUserId) saveUserData(); // Save final game state to Firestore
-}
-
-/**
- * Saves relevant game state data to Firestore for authenticated users,
- * or to local storage for guest users.
- */
-async function saveUserData() {
-    if (!currentUserId) {
-        console.warn("Cannot save user data: No user authenticated.");
+// AI Step-by-Step Solution
+async function getStepByStepSolution(problem) {
+    if (!domElements.solutionModal || !domElements.solutionContent || !domElements.solutionLoading) {
+        console.error("Solution modal elements not found.");
         return;
     }
-    const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile`, 'data');
+
+    domElements.solutionContent.innerHTML = ''; // Clear previous content
+    domElements.solutionLoading.style.display = 'block'; // Show loading indicator
+    domElements.solutionModal.style.display = 'block'; // Show the modal
+
+    const prompt = `Provide a step-by-step solution for the following calculus problem.
+    Question: ${problem.question}
+    Correct Answer: ${problem.answer}
+    Please explain each step clearly. Provide the solution in LaTeX format, wrapped in $$...$$ for display by MathLive.`;
+
+    try {
+        let chatHistory = [];
+        chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+        const payload = { contents: chatHistory };
+        // The API key is automatically provided by the Canvas environment at runtime.
+        // Do NOT hardcode your API key here or try to fetch it from an external source.
+        const apiKey = "";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+        domElements.solutionLoading.style.display = 'none'; // Hide loading indicator
+
+        if (result.candidates && result.candidates.length > 0 &&
+            result.candidates[0].content && result.candidates[0].content.parts &&
+            result.candidates[0].content.parts.length > 0) {
+            const solutionText = result.candidates[0].content.parts[0].text;
+            
+            // Create a Mathfield element for the solution content
+            const solutionMathField = document.createElement('math-field');
+            solutionMathField.value = solutionText;
+            solutionMathField.readOnly = true;
+            solutionMathField.virtualKeyboardMode = 'off';
+            solutionMathField.showMenu = false;
+            domElements.solutionContent.appendChild(solutionMathField);
+
+        } else {
+            domElements.solutionContent.innerHTML = '<p>Could not generate a solution. Please try again.</p>';
+            console.error("Unexpected API response structure:", result);
+        }
+    } catch (error) {
+        domElements.solutionLoading.style.display = 'none'; // Hide loading indicator
+        domElements.solutionContent.innerHTML = '<p>Error fetching solution. Please check your network connection.</p>';
+        console.error("Error fetching solution from LLM:", error);
+    }
+}
+
+// Adjust Game Difficulty
+function adjustGameDifficulty(difficulty) {
+    let difficultyName;
+    switch (difficulty) {
+        case 1: difficultyName = 'easy'; break;
+        case 2: difficultyName = 'medium'; break;
+        case 3: difficultyName = 'hard'; break;
+        case 4: difficultyName = 'insane'; break;
+        case 5: difficultyName = 'impossible'; break;
+        case 6: difficultyName = 'legend'; break;
+        case 7: difficultyName = 'goat'; break;
+        case 8: difficultyName = 'mixed'; break;
+        default: difficultyName = 'easy';
+    }
+
+    // Apply initial game parameters based on difficulty selected
+    // Note: These values might be overridden if specific settings are loaded from localStorage
+    switch (difficultyName) {
+        case "easy":
+            // Initial lives for easy
+            gameState.lives = 15;
+            break;
+        case "medium":
+            // Initial lives for medium
+            gameState.lives = 10;
+            break;
+        case "hard":
+            // Initial lives for hard
+            gameState.lives = 5;
+            break;
+        case "insane":
+            gameState.lives = 4;
+            break;
+        case "impossible":
+            gameState.lives = 3;
+            break;
+        case "legend":
+            gameState.lives = 2;
+            break;
+        case "goat":
+            gameState.lives = 1;
+            break;
+        case "mixed":
+            // Lives are not specifically adjusted for mixed, relies on default or prior settings
+            break;
+        default:
+            console.error("Unknown difficulty level.");
+    }
+    // Timer is set from settings.time in initializeGame, not here.
+}
+
+
+function updateTimer() {
+    if (domElements.timer) domElements.timer.textContent = gameState.timer;
+    if (gameState.timer <= 0) {
+        endGame();
+    }
+}
+
+// End Game
+async function endGame() {
+    clearInterval(gameState.timerInterval);
+    const finalScore = gameState.score;
+
+    if (domElements.gameOverModal) {
+        document.getElementById('game').style.display = 'none';
+        domElements.gameOverModal.style.display = 'block';
+        if (domElements.finalScore) domElements.finalScore.textContent = finalScore;
+    }
+
+    gameState.stats.gamesPlayed++;
+
+    // Save user data and update leaderboard if user is authenticated
+    if (userId) {
+        await saveUserData(userId);
+    }
+    await updateLeaderboard(finalScore);
+}
+
+// Firebase Auth Functions
+
+/**
+ * Signs up a new user with email and password.
+ * @param {string} email
+ * @param {string} password
+ * @returns {Promise<void>}
+ */
+async function signUpUser(email, password, username) {
+    try {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        console.log("User signed up:", user.uid);
+        // Save initial user data to Firestore
+        await setDoc(doc(db, `artifacts/${appId}/users/${user.uid}/private/data/profile`), {
+            username: username,
+            email: user.email,
+            highScore: 0,
+            gamesPlayed: 0,
+            createdAt: new Date().toISOString()
+        });
+        showMessageModal("Sign up successful! Welcome, " + username + "!");
+        window.location.href = 'profile.html'; // Redirect to profile page after signup
+    } catch (error) {
+        console.error("Error signing up:", error);
+        showMessageModal("Sign up failed: " + error.message);
+    }
+}
+
+/**
+ * Signs in an existing user with email and password.
+ * @param {string} email
+ * @param {string} password
+ * @returns {Promise<void>}
+ */
+async function signInUser(email, password) {
+    try {
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        console.log("User signed in:", user.uid);
+        showMessageModal("Welcome back!");
+        window.location.href = 'profile.html'; // Redirect to profile page after login
+    } catch (error) {
+        console.error("Error signing in:", error);
+        showMessageModal("Login failed: " + error.message);
+    }
+}
+
+/**
+ * Signs out the current user.
+ * @returns {Promise<void>}
+ */
+async function signOutUser() {
+    try {
+        await signOut(auth);
+        console.log("User signed out.");
+        showMessageModal("You have been signed out.");
+        window.location.href = 'index.html'; // Redirect to home page after logout
+    } catch (error) {
+        console.error("Error signing out:", error);
+        showMessageModal("Logout failed: " + error.message);
+    }
+}
+
+/**
+ * Saves user data (high score, games played) to Firestore.
+ * @param {string} uid User ID
+ * @returns {Promise<void>}
+ */
+async function saveUserData(uid) {
+    if (!db) {
+        console.error("Firestore not initialized.");
+        return;
+    }
+    const userDocRef = doc(db, `artifacts/${appId}/users/${uid}/private/data/profile`);
     try {
         await setDoc(userDocRef, {
-            username: gameState.username,
             highScore: gameState.highScore,
-            galacticCoins: gameState.galacticCoins,
-            powerUps: gameState.powerUps,
-            stats: gameState.stats,
-            achievements: gameState.achievements,
-            dailyStreak: gameState.dailyStreak,
-            lastPlayed: gameState.lastPlayed,
-        }, { merge: true }); // Use merge to avoid overwriting other fields
-        console.log("User data saved successfully to Firestore.");
-    } catch (e) {
-        console.error("Error saving user data to Firestore:", e);
+            gamesPlayed: gameState.stats.gamesPlayed
+        }, { merge: true }); // Use merge to update existing fields without overwriting
+        console.log("User data saved successfully!");
+    } catch (error) {
+        console.error("Error saving user data:", error);
     }
 }
 
 /**
- * Loads user-specific game state data from Firestore for authenticated users,
- * or from local storage for guest users.
+ * Loads user data from Firestore and updates gameState.
+ * @param {string} uid User ID
+ * @returns {Promise<void>}
  */
-async function loadUserData() {
-    if (!currentUserId) {
-        // Load from local storage for guest user
-        gameState.highScore = parseInt(localStorage.getItem("highScore")) || 0;
-        gameState.galacticCoins = parseInt(localStorage.getItem("galacticCoins")) || 0;
-        gameState.achievements = JSON.parse(localStorage.getItem("achievements")) || [];
-        gameState.dailyStreak = parseInt(localStorage.getItem("dailyStreak")) || 0;
-        gameState.lastPlayed = localStorage.getItem("lastPlayed") || null;
-        gameState.powerUps = JSON.parse(localStorage.getItem("powerUps")) || { skip: 0, doubleScore: 0, extraTime: 0 };
-        gameState.stats = JSON.parse(localStorage.getItem("gameStats")) || { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 };
-        gameState.username = "Guest";
-        console.log("Loaded game state from local storage (Guest mode).");
+async function loadUserData(uid) {
+    if (!db) {
+        console.error("Firestore not initialized.");
         return;
     }
-
-    const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile`, 'data');
+    const userDocRef = doc(db, `artifacts/${appId}/users/${uid}/private/data/profile`);
     try {
         const docSnap = await getDoc(userDocRef);
         if (docSnap.exists()) {
             const data = docSnap.data();
-            gameState.username = data.username || "Guest";
             gameState.highScore = data.highScore || 0;
-            gameState.galacticCoins = data.galacticCoins || 0;
-            gameState.powerUps = data.powerUps || { skip: 0, doubleScore: 0, extraTime: 0 };
-            gameState.stats = data.stats || { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 };
-            gameState.achievements = data.achievements || [];
-            gameState.dailyStreak = data.dailyStreak || 0;
-            gameState.lastPlayed = data.lastPlayed || null;
-            console.log("Loaded user data from Firestore:", data);
+            gameState.stats.gamesPlayed = data.gamesPlayed || 0;
+            if (domElements.profileUsername) domElements.profileUsername.textContent = data.username || "Anonymous";
+            if (domElements.profileEmail) domElements.profileEmail.textContent = data.email || "";
+            if (domElements.profileHighScore) domElements.profileHighScore.textContent = gameState.highScore;
+            if (domElements.profileGamesPlayed) domElements.profileGamesPlayed.textContent = gameState.stats.gamesPlayed;
+
+            updateScoreDisplay(); // Update game high score display
+            console.log("User data loaded:", data);
         } else {
-            console.log("No profile data found for user, creating default.");
-            gameState.username = auth.currentUser.displayName || "User_" + currentUserId.substring(0, 5); // Use display name from auth if available
-            gameState.highScore = 0;
-            gameState.galacticCoins = 0;
-            gameState.powerUps = { skip: 0, doubleScore: 0, extraTime: 0 };
-            gameState.stats = { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 };
-            gameState.achievements = [];
-            gameState.dailyStreak = 0;
-            gameState.lastPlayed = null;
-            await setDoc(userDocRef, { // Use setDoc to create the document
-                username: gameState.username,
-                email: auth.currentUser.email || null, // Capture email if available
-                highScore: gameState.highScore,
-                galacticCoins: gameState.galacticCoins,
-                powerUps: gameState.powerUps,
-                stats: gameState.stats,
-                achievements: gameState.achievements,
-                dailyStreak: gameState.dailyStreak,
-                lastPlayed: gameState.lastPlayed,
-            });
-            console.log("Created default user profile in Firestore.");
+            console.log("No user data found for", uid);
+            // Initialize basic profile data if none exists
+            if (domElements.profileUsername) domElements.profileUsername.textContent = "Anonymous";
+            if (domElements.profileEmail) domElements.profileEmail.textContent = auth.currentUser ? auth.currentUser.email : "";
+            if (domElements.profileHighScore) domElements.profileHighScore.textContent = "0";
+            if (domElements.profileGamesPlayed) domElements.profileGamesPlayed.textContent = "0";
         }
-    } catch (e) {
-        console.error("Error loading user data from Firestore:", e);
-        // Fallback to local storage if Firestore fails for some reason
-        loadGameStateFromLocalStorage();
-    }
-    // After loading, update UI
-    updateScoreDisplay();
-    updatePowerUpsDisplay();
-    updateStatsDisplay();
-    updateMilestoneHistoryDisplay();
-    displayLeaderboard(); // Refresh leaderboard with potentially new user score
-    checkDailyLogin(); // Check daily login after user data is loaded
-}
-
-// Helper to load from local storage (used as fallback or for guest)
-function loadGameStateFromLocalStorage() {
-    gameState.highScore = parseInt(localStorage.getItem("highScore")) || 0;
-    gameState.galacticCoins = parseInt(localStorage.getItem("galacticCoins")) || 0;
-    gameState.achievements = JSON.parse(localStorage.getItem("achievements")) || [];
-    gameState.dailyStreak = parseInt(localStorage.getItem("dailyStreak")) || 0;
-    gameState.lastPlayed = localStorage.getItem("lastPlayed") || null;
-    gameState.powerUps = JSON.parse(localStorage.getItem("powerUps")) || { skip: 0, doubleScore: 0, extraTime: 0 };
-    gameState.stats = JSON.parse(localStorage.getItem("gameStats")) || { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 };
-    gameState.username = "Guest";
-    console.log("Loaded game state from local storage (fallback/guest).");
-}
-
-
-/**
- * Adds the current game score to the leaderboard and persists it to Firestore.
- */
-async function updateLeaderboard(score) {
-    if (!isAuthReady) {
-        console.warn("Auth not ready, skipping leaderboard update.");
-        return;
-    }
-
-    const leaderboardCollectionRef = collection(db, `artifacts/${appId}/public/data/leaderboard`);
-    const username = gameState.username || "Guest"; // Use actual username
-
-    try {
-        await addDoc(leaderboardCollectionRef, {
-            score: score,
-            timestamp: new Date().toISOString(),
-            userId: currentUserId,
-            username: username
-        });
-        console.log("Score added to leaderboard.");
-        displayLeaderboard();
-    } catch (e) {
-        console.error("Error adding score to leaderboard:", e);
+    } catch (error) {
+        console.error("Error loading user data:", error);
     }
 }
 
 /**
- * Displays the current top 10 scores in the leaderboard section from Firestore.
+ * Updates the leaderboard in Firestore and refreshes the display.
+ * @param {number} finalScore The score to potentially add to the leaderboard.
+ * @returns {Promise<void>}
  */
-async function displayLeaderboard() {
-    if (!domElements.leaderboard || !isAuthReady) {
-        console.warn("Leaderboard element or Auth not ready, skipping display.");
+async function updateLeaderboard(finalScore) {
+    if (!db) {
+        console.error("Firestore not initialized.");
         return;
     }
 
-    domElements.leaderboard.innerHTML = '<h3 class="text-2xl font-semibold text-blue-300 mb-4">Leaderboard</h3>';
     const leaderboardCollectionRef = collection(db, `artifacts/${appId}/public/data/leaderboard`);
-    const q = query(leaderboardCollectionRef, orderBy("score", "desc"), limit(10));
+    const currentUserName = auth.currentUser ? (domElements.profileUsername ? domElements.profileUsername.textContent : auth.currentUser.email || "Anonymous") : "Anonymous";
 
     try {
+        // Add current game score to leaderboard if it's a valid score
+        if (finalScore > 0) {
+            await setDoc(doc(leaderboardCollectionRef, userId || crypto.randomUUID()), { // Use userId if logged in, else a random ID
+                username: currentUserName,
+                score: finalScore,
+                timestamp: new Date().toISOString(),
+                userId: userId || 'anonymous' // Store userId for unique entries if needed
+            }, { merge: true }); // Merge to update existing user's score if they play again
+        }
+
+        // Fetch top 10 scores
+        const q = query(leaderboardCollectionRef, limit(10)); // Removed orderBy to prevent index errors
         const querySnapshot = await getDocs(q);
-        const topScores = [];
+
+        const newLeaderboard = [];
         querySnapshot.forEach((doc) => {
-            topScores.push(doc.data());
+            newLeaderboard.push(doc.data());
         });
 
-        if (topScores.length === 0) {
-            domElements.leaderboard.innerHTML += '<p class="text-gray-400">No scores yet. Play to get on the leaderboard!</p>';
-            return;
-        }
-
-        const table = document.createElement('table');
-        table.classList.add('min-w-full', 'divide-y', 'divide-gray-600', 'rounded-lg', 'overflow-hidden');
-        table.innerHTML = `
-            <thead class="bg-gray-600">
-            <tr>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-200 uppercase tracking-wider rounded-tl-lg">Rank</th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-200 uppercase tracking-wider">Username</th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-200 uppercase tracking-wider">Score</th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-200 uppercase tracking-wider rounded-tr-lg">Date</th>
-            </tr>
-            </thead>
-            <tbody class="bg-gray-700 divide-y divide-gray-600">
-            </tbody>
-        `;
-        const tbody = table.querySelector('tbody');
-
-        topScores.forEach((entry, index) => {
-            const row = tbody.insertRow();
-            row.classList.add('hover:bg-gray-600', 'transition-colors', 'duration-200');
-            const formattedTimestamp = new Date(entry.timestamp).toLocaleString();
-            row.innerHTML = `
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-100">${index + 1}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-200">${entry.username || 'N/A'}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-200">${entry.score}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formattedTimestamp}</td>
-            `;
-        });
-        domElements.leaderboard.appendChild(table);
-    } catch (e) {
-        console.error("Error displaying leaderboard:", e);
+        // Sort in memory as orderBy is removed from query
+        newLeaderboard.sort((a, b) => b.score - a.score);
+        gameState.leaderboard = newLeaderboard;
+        displayLeaderboard();
+        console.log("Leaderboard updated and displayed.");
+    } catch (error) {
+        console.error("Error updating or fetching leaderboard:", error);
     }
 }
 
 /**
- * Initializes the game state and UI elements when the page loads.
+ * Displays the current leaderboard from gameState.
  */
-function initializeGame() {
-  console.log("Initializing game state...");
+function displayLeaderboard() {
+    if (!domElements.leaderboardTableBody) {
+        console.error("Leaderboard table body not found.");
+        return;
+    }
+    domElements.leaderboardTableBody.innerHTML = ''; // Clear existing entries
 
-  // Load settings from local storage (these are not user-specific and can be local)
-  const savedSettings = JSON.parse(localStorage.getItem("gameSettings"));
-  if (savedSettings) {
-    gameState.settings = {
-      ...gameState.settings,
-      ...savedSettings,
-    };
-  }
+    gameState.leaderboard.forEach((entry, index) => {
+        const row = domElements.leaderboardTableBody.insertRow();
+        const rankCell = row.insertCell();
+        const playerCell = row.insertCell();
+        const scoreCell = row.insertCell();
 
-  // Adjust difficulty based on settings
-  adjustGameDifficulty(gameState.settings.difficulty);
-
-  // The rest of the initialization (loading user data, starting timer, displaying problem)
-  // is now handled by the onAuthStateChanged listener to ensure Firebase is ready.
-
-  console.log("Game initialized with settings:", gameState.settings);
+        rankCell.textContent = index + 1;
+        playerCell.textContent = entry.username || "Anonymous";
+        scoreCell.textContent = entry.score;
+    });
 }
 
-// Firebase Authentication State Listener
-onAuthStateChanged(auth, async (user) => {
+/**
+ * Updates the navigation links based on authentication status.
+ * @param {object | null} user The Firebase user object or null if signed out.
+ */
+function updateAuthLinks(user) {
+    if (!domElements.authLinks) return;
+
+    domElements.authLinks.innerHTML = ''; // Clear existing links
+
     if (user) {
-        currentUserId = user.uid;
-        console.log("User logged in (Firebase):", currentUserId);
+        // User is signed in
+        const profileLink = document.createElement('li');
+        profileLink.innerHTML = `<a href="profile.html"><i class="fas fa-user"></i> Profile</a>`;
+        domElements.authLinks.appendChild(profileLink);
 
-        // Sign in with custom token if available, otherwise anonymously
-        // This block ensures the Canvas environment's auth token is used if provided,
-        // otherwise falls back to anonymous sign-in.
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-            try {
-                await signInWithCustomToken(auth, __initial_auth_token);
-                console.log("Signed in with custom token.");
-            } catch (error) {
-                console.error("Error signing in with custom token:", error);
-                await signInAnonymously(auth);
-                console.log("Signed in anonymously due to custom token error.");
-            }
-        } else {
-            await signInAnonymously(auth);
-            console.log("Signed in anonymously.");
-        }
-
-        // Load user-specific data from Firestore after auth is confirmed
-        await loadUserData();
-        initializeAuthLinks(); // Update auth links based on logged-in status
+        const logoutLink = document.createElement('li');
+        const logoutBtn = document.createElement('button');
+        logoutBtn.className = 'btn logout-btn';
+        logoutBtn.innerHTML = `<i class="fas fa-sign-out-alt"></i> Logout`;
+        logoutBtn.addEventListener('click', signOutUser);
+        logoutLink.appendChild(logoutBtn);
+        domElements.authLinks.appendChild(logoutLink);
     } else {
-        currentUserId = null;
-        console.log("User logged out or not authenticated (Firebase).");
-        initializeAuthLinks(); // Update auth links based on logged-out status
-        // Clear user-specific data and load from local storage for anonymous/guest user
-        loadGameStateFromLocalStorage();
-        updateScoreDisplay();
-        updatePowerUpsDisplay();
-        updateStatsDisplay();
-        updateMilestoneHistoryDisplay();
-        displayLeaderboard();
-    }
-    isAuthReady = true; // Set auth ready flag
+        // User is signed out
+        const signupLink = document.createElement('li');
+        signupLink.innerHTML = `<a href="signup.html">Sign Up</a>`;
+        domElements.authLinks.appendChild(signupLink);
 
-    // If on game page, start game after auth is ready and data is loaded
-    if (window.location.pathname.includes('game.html')) {
-        // Only start if timer is not already running (prevents multiple starts on page load)
-        if (!gameState.timerInterval) {
-            // Initialize the MathLive display field for the first question
-            if (domElements.question && !domElements.question.querySelector('math-field')) {
-                const mathFieldDisplay = document.createElement("math-field");
-                mathFieldDisplay.readOnly = true;
-                mathFieldDisplay.virtualKeyboardMode = "off";
-                mathFieldDisplay.showMenu = false;
-                domElements.question.appendChild(mathFieldDisplay);
+        const loginLink = document.createElement('li');
+        loginLink.innerHTML = `<a href="login.html">Login</a>`;
+        domElements.authLinks.appendChild(loginLink);
+    }
+}
+
+// Event Listeners (ensure they are attached to existing elements)
+if (domElements.submitButton) domElements.submitButton.addEventListener('click', validateAnswer);
+if (domElements.skipButton) domElements.skipButton.addEventListener('click', useSkip);
+if (domElements.doubleScoreButton) domElements.doubleScoreButton.addEventListener('click', useDoubleScore);
+if (domElements.restartGameButton) domElements.restartGameButton.addEventListener('click', () => {
+    // Reset game state
+    gameState.score = 0;
+    gameState.lives = 10; // Or reset to default from settings
+    gameState.timer = gameState.settings.time;
+    gameState.stats = { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0, gamesPlayed: gameState.stats.gamesPlayed }; // Keep gamesPlayed
+    gameState.milestoneHistory = [];
+    gameState.powerUps = { skip: 0, doubleScore: 0, extraTime: 0 };
+    // Re-initialize game settings based on saved settings for a fresh start
+    const savedSettings = JSON.parse(localStorage.getItem('gameSettings')) || {
+        diff: true,
+        int: false,
+        time: 60,
+        difficulty: 1,
+    };
+    gameState.settings = savedSettings;
+
+    // Hide modal and show game elements
+    if (domElements.gameOverModal) domElements.gameOverModal.style.display = 'none';
+    const gameMain = document.getElementById('game');
+    if (gameMain) gameMain.style.display = 'block';
+
+    initializeGame(); // Restart the game
+});
+
+// Event listeners for authentication forms (signup/login pages)
+document.addEventListener('DOMContentLoaded', () => {
+    if (domElements.loginForm) {
+        domElements.loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = domElements.loginForm.querySelector('#email').value;
+            const password = domElements.loginForm.querySelector('#password').value;
+            await signInUser(email, password);
+        });
+    }
+
+    if (domElements.signupForm) {
+        domElements.signupForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = domElements.signupForm.querySelector('#username').value;
+            const email = domElements.signupForm.querySelector('#email').value;
+            const password = domElements.signupForm.querySelector('#password').value;
+            await signUpUser(email, password, username);
+        });
+    }
+
+    if (domElements.logoutButton) {
+        domElements.logoutButton.addEventListener('click', signOutUser);
+    }
+    
+    // Close solution modal
+    if (domElements.closeSolutionModal) {
+        domElements.closeSolutionModal.addEventListener('click', () => {
+            if (domElements.solutionModal) {
+                domElements.solutionModal.style.display = 'none';
             }
-            startTimer();
-            displayProblem();
-        }
+        });
     }
 });
 
 
-// --- Problem Generation Helper Functions ---
-// (These remain the same as they are static data)
+// Game Initialization
+async function initializeGame() {
+    // Initialize Firebase only once
+    if (!app) {
+        app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getFirestore(app);
 
-function getDifferentiationProblems() {
-  return {
-    1: [ // Easy
-      { question: "$$\\frac{d}{dx}(x^2)$$", answer: "$$2x$$" },
-      { question: "$$\\frac{d}{dx}(3x)$$", answer: "$$3$$" },
-      { question: "$$\\frac{d}{dx}(5)$$", answer: "$$0$$" },
-      { question: "$$\\frac{d}{dx}(x)$$", answer: "$$1$$" },
-      { question: "$$\\frac{d}{dx}(7x+2)$$", answer: "$$7$$" },
-    ],
-    2: [ // Medium
-      { question: "$$\\frac{d}{dx}(x^3 + 2x)$$", answer: "$$3x^2 + 2$$" },
-      { question: "$$\\frac{d}{dx}(\\sin(x))$$", answer: "$$\\cos(x)$$" },
-      { question: "$$\\frac{d}{dx}(e^x)$$", answer: "$$e^x$$" },
-      { question: "$$\\frac{d}{dx}(\\ln(x))$$", answer: "$$\\frac{1}{x}$$" },
-      { question: "$$\\frac{d}{dx}(x^4 - 3x^2 + 1)$$", answer: "$$4x^3 - 6x$$" },
-    ],
-    3: [ // Hard
-      { question: "$$\\frac{d}{dx}(x^2 \\cos(x))$$", answer: "$$2x\\cos(x) - x^2\\sin(x)$$" },
-      { question: "$$\\frac{d}{dx}(\\frac{\\sin(x)}{x})$$", answer: "$$\\frac{x\\cos(x) - \\sin(x)}{x^2}$$" },
-      { question: "$$\\frac{d}{dx}(\\ln(x^2+1))$$", answer: "$$\\frac{2x}{x^2+1}$$" },
-      { question: "$$\\frac{d}{dx}(\\sqrt{x})$$", answer: "$$\\frac{1}{2\\sqrt{x}}$$"},
-      { question: "$$\\frac{d}{dx}(\\tan(x))$$", answer: "$$\\sec^2(x)$$"},
-    ],
-    4: [ // Insane (more complex chain/product/quotient rules)
-      { question: "$$\\frac{d}{dx}((3x^2+1)^4)$$", answer: "$$24x(3x^2+1)^3$$" },
-      { question: "$$\\frac{d}{dx}(e^{\\sin(x)})$$", answer: "$$\\cos(x)e^{\\sin(x)}$$" },
-      { question: "$$\\frac{d}{dx}(\\tan(x^2))$$", answer: "$$2x\\sec^2(x^2)$$"},
-      { question: "$$\\frac{d}{dx}(\\frac{e^x}{x})$$", answer: "$$\\frac{e^x(x-1)}{x^2}$$"},
-      { question: "$$\\frac{d}{dx}(\\sin(\\ln(x)))$$", answer: "$$\\frac{\\cos(\\ln(x))}{x}$$"}
-    ],
-    5: [ // Impossible (implicit, higher order, tricky functions)
-      { question: "$$\\frac{d}{dx}(\\sqrt{x^2+1})$$", answer: "$$\\frac{x}{\\sqrt{x^2+1}}$$"},
-      { question: "$$\\frac{d}{dx}(\\arcsin(x))$$", answer: "$$\\frac{1}{\\sqrt{1-x^2}}$$"},
-      { question: "$$\\frac{d}{dx}(x^x)$$", answer: "$$x^x(1+\\ln(x))$$"},
-      { question: "$$\\frac{d}{dx}(\\text{sech}(x))$$", answer: "$$-\\text{sech}(x)\\tanh(x)$$"},
-      { question: "$$\\frac{d}{dx}(\\text{arccosh}(x))$$", answer: "$$\\frac{1}{\\sqrt{x^2-1}}$$"}
-    ]
-  };
-}
+        // Sign in anonymously if no custom token, or use custom token
+        await new Promise(resolve => {
+            const unsubscribe = onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    console.log("User is signed in:", userId);
+                    updateAuthLinks(user);
+                    await loadUserData(userId); // Load user-specific data from Firestore
+                } else {
+                    userId = null;
+                    console.log("User is signed out.");
+                    updateAuthLinks(null);
+                    // Reset profile data if user signs out
+                    if (domElements.profileUsername) domElements.profileUsername.textContent = '[Username]';
+                    if (domElements.profileEmail) domElements.profileEmail.textContent = '[User Email]';
+                    if (domElements.profileHighScore) domElements.profileHighScore.textContent = '[High Score]';
+                    if (domElements.profileGamesPlayed) domElements.profileGamesPlayed.textContent = '[Games Played]';
 
-function getIntegrationProblems() {
-  return {
-    1: [ // Easy
-      { question: "$$\\int x \\, dx$$", answer: "$$\\frac{x^2}{2} + C$$" },
-      { question: "$$\\int 4 \\, dx$$", answer: "$$4x + C$$" },
-      { question: "$$\\int \\cos(x) \\, dx$$", answer: "$$\\sin(x) + C$$" },
-      { question: "$$\\int e^x \\, dx$$", answer: "$$e^x + C$$" },
-      { question: "$$\\int \\frac{1}{x} \\, dx$$", answer: "$$\\ln|x| + C$$" },
-    ],
-    2: [ // Medium
-      { question: "$$\\int (x^2 + 3x) \\, dx$$", answer: "$$\\frac{x^3}{3} + \\frac{3x^2}{2} + C$$" },
-      { question: "$$\\int e^{2x} \\, dx$$", answer: "$$\\frac{1}{2}e^{2x} + C$$" },
-      { question: "$$\\int \\sin(x) \\, dx$$", answer: "$$-\\cos(x) + C$$" },
-      { question: "$$\\int (\\frac{1}{\\sqrt{x}}) \\, dx$$", answer: "$$2\\sqrt{x} + C$$"},
-      { question: "$$\\int \\sec^2(x) \\, dx$$", answer: "$$\\tan(x) + C$$"}
-    ],
-    3: [ // Hard (basic substitution, by parts)
-      { question: "$$\\int x \\sin(x) \\, dx$$", answer: "$$\\sin(x) - x\\cos(x) + C$$" },
-      { question: "$$\\int x e^{x^2} \\, dx$$", answer: "$$\\frac{1}{2}e^{x^2} + C$$" },
-      { question: "$$\\int \\ln(x) \\, dx$$", answer: "$$x\\ln(x) - x + C$$" },
-      { question: "$$\\int \\frac{1}{x^2+1} \\, dx$$", answer: "$$\\arctan(x) + C$$"},
-      { question: "$$\\int \\frac{\\cos(x)}{\\sin(x)} \\, dx$$", answer: "$$\\ln|\\sin(x)| + C$$"}
-    ],
-    4: [ // Insane (more complex substitution, partial fractions)
-      { question: "$$\\int \\frac{1}{x^2-1} \\, dx$$", answer: "$$\\frac{1}{2}\\ln|\\frac{x-1}{x+1}| + C$$" },
-      { question: "$$\\int \\frac{x}{x^2+4} \\, dx$$", answer: "$$\\frac{1}{2}\\ln(x^2+4) + C$$" },
-      { question: "$$\\int \\sin^2(x) \\, dx$$", answer: "$$\\frac{x}{2} - \\frac{1}{4}\\sin(2x) + C$$"}
-    ],
-    5: [ // Impossible (trigonometric substitution, advanced by parts)
-      { question: "$$\\int \\sqrt{1-x^2} \\, dx$$", answer: "$$\\frac{x}{2}\\sqrt{1-x^2} + \\frac{1}{2}\\arcsin(x) + C$$"},
-      { question: "$$\\int e^x \\cos(x) \\, dx$$", answer: "$$\\frac{1}{2}e^x(\\sin(x) + \\cos(x)) + C$$"},
-      { question: "$$\\int \\sec^3(x) \\, dx$$", answer: "$$\\frac{1}{2}\\sec(x)\\tan(x) + \\frac{1}{2}\\ln|\\sec(x) + \\tan(x)| + C$$"},
-      { question: "$$\\int \\frac{1}{x\\ln(x)} \\, dx$$", answer: "$$\\ln|\\ln(x)| + C$$"},
-      { question: "$$\\int \\frac{1}{x^2+4x+5} \\, dx$$", answer: "$$\\arctan(x+2) + C$$"}
-    ]
-  };
-}
+                    // Sign in anonymously if not authenticated and no custom token provided (for guests)
+                    if (!initialAuthToken && !auth.currentUser) {
+                         await signInAnonymously(auth);
+                         console.log("Signed in anonymously for guest session.");
+                    }
+                }
+                unsubscribe(); // Unsubscribe after initial state is determined
+                resolve();
+            });
+        });
 
-/**
- * Checks if the user has logged in today and awards a daily bonus if applicable.
- */
-function checkDailyLogin() {
-  const today = new Date().toDateString();
-  if (gameState.lastPlayed !== today) {
-    gameState.dailyStreak++;
-    gameState.lastPlayed = today;
-    gameState.galacticCoins += 10;
-    showDailyRewardNotification(gameState.dailyStreak, 10);
-    if (currentUserId) saveUserData(); // Persist streak and coins
-  } else {
-    console.log("Already received daily reward for today.");
-  }
-}
+        // Use custom token if available (this block executes after onAuthStateChanged resolves)
+        if (initialAuthToken && !auth.currentUser) {
+            try {
+                await signInWithCustomToken(auth, initialAuthToken);
+                console.log("Signed in with custom token.");
+            } catch (error) {
+                console.error("Error signing in with custom token:", error);
+                await signInAnonymously(auth); // Fallback to anonymous
+                console.log("Signed in anonymously after custom token failed.");
+            }
+        }
+    }
 
-/**
- * Displays a notification for the daily login reward.
- */
-function showDailyRewardNotification(streak, coinsEarned) {
-  const notification = document.createElement("div");
-  notification.classList.add('fixed', 'top-10', 'left-1/2', '-translate-x-1/2', 'bg-blue-600', 'text-white', 'p-4', 'rounded-lg', 'shadow-xl', 'z-50', 'text-center', 'animate-fadeInOut');
-  notification.innerHTML = `
-      <strong class="text-xl">Daily Login Bonus!</strong><br>
-      Streak: ${streak} days!<br>
-      You earned <em class="font-semibold">${coinsEarned} Galactic Coins!</em>`;
-  document.body.appendChild(notification);
-  coinSound.play().catch(e => console.error("Error playing sound:", e));
 
-  if (!document.getElementById('fadeInOutStyle')) {
-    const styleSheet = document.createElement("style");
-    styleSheet.id = 'fadeInOutStyle';
-    styleSheet.type = "text/css";
-    styleSheet.innerText = `
-      @keyframes fadeInOut {
-        0% { opacity: 0; transform: translate(-50%, -50px); }
-        10% { opacity: 1; transform: translate(-50%, 0); }
-        90% { opacity: 1; transform: translate(-50%, 0); }
-        100% { opacity: 0; transform: translate(-50%, -50px); }
-      }
-      .animate-fadeInOut {
-        animation: fadeInOut 3s forwards;
-      }
-    `;
-    document.head.appendChild(styleSheet);
-  }
+    // Set initial timer based on settings or default
+    gameState.timer = gameState.settings.time;
+    // Set lives based on initial difficulty settings, then adjust further
+    adjustGameDifficulty(gameState.settings.difficulty);
 
-  setTimeout(() => notification.remove(), 3000);
-}
-
-/**
- * Opens the shop modal and populates it with available items.
- */
-function openShopModal() {
-  if (domElements.shopModal) {
-    domElements.shopModal.classList.remove("hidden");
-    domElements.shopModal.classList.add("show");
-    populateShopItems();
-  }
-}
-
-/**
- * Closes the shop modal.
- */
-function closeShopModal() {
-  if (domElements.shopModal) {
-    domElements.shopModal.classList.remove("show");
-    domElements.shopModal.classList.add("hidden");
-  }
-}
-
-/**
- * Populates the shop modal with purchasable items.
- */
-function populateShopItems() {
-  if (!domElements.shopItemsContainer) return;
-
-  domElements.shopItemsContainer.innerHTML = '';
-
-  for (const itemKey in gameState.shopItems) {
-    const item = gameState.shopItems[itemKey];
-    const itemElement = document.createElement('div');
-    itemElement.classList.add('shop-item');
-    itemElement.innerHTML = `
-      <h4 class="text-xl font-semibold text-purple-300">${itemKey.replace(/([A-Z])/g, ' $1').trim()}</h4>
-      <p class="text-gray-300">${item.description}</p>
-      <div class="flex items-center justify-center mt-2">
-        <span class="text-yellow-400 text-lg font-bold mr-2">${item.cost}</span>
-        <i class="fas fa-coins text-yellow-400 text-xl"></i>
-      </div>
-      <button class="buy-button mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-full transition-colors duration-200" data-item="${itemKey}">
-        Buy
-      </button>
-    `;
-    domElements.shopItemsContainer.appendChild(itemElement);
-  }
-
-  domElements.shopItemsContainer.querySelectorAll('.buy-button').forEach(button => {
-    button.addEventListener('click', (event) => {
-      const itemToBuy = event.target.dataset.item;
-      purchasePowerUp(itemToBuy);
-    });
-  });
-}
-
-/**
- * Handles the purchase of a power-up from the shop.
- */
-function purchasePowerUp(itemKey) {
-  const item = gameState.shopItems[itemKey];
-  if (!item) {
-    console.error("Attempted to purchase non-existent item:", itemKey);
-    return;
-  }
-
-  if (gameState.galacticCoins >= item.cost) {
-    gameState.galacticCoins -= item.cost;
-    gameState.powerUps[itemKey]++;
-    purchaseSound.play().catch(e => console.error("Error playing sound:", e));
-    showPurchaseNotification(`Purchased ${itemKey.replace(/([A-Z])/g, ' $1').trim()}!`, 'success');
+    // Initial display updates
     updateScoreDisplay();
     updatePowerUpsDisplay();
-    if (currentUserId) saveUserData();
-    populateShopItems();
-  } else {
-    showPurchaseNotification("Not enough coins!", 'error');
-    console.log("Not enough coins to buy", itemKey);
-  }
+    updateStatsDisplay();
+    startTimer();
+    displayProblem();
+    await displayLeaderboard(); // Ensure leaderboard is fetched after Firebase is ready
+
+    // Sound toggle logic
+    const soundToggleCheckbox = document.getElementById('sound-toggle-checkbox');
+    const wrongSound = document.getElementById('wrongSound');
+    const correctSound = document.getElementById('correctSound');
+    // Assuming these sounds exist, if not, they will be null and cause errors
+    // Removed references to non-existent audio elements to prevent errors
+    // const doubleScoreSound = document.getElementById('doubleScoreSound');
+    // const skipSound = document.getElementById('skipSound');
+    // const powerUpSound = document.getElementById('powerUpSound');
+    // const timerSound = document.getElementById('timerSound');
+    // const leaderboardSound = document.getElementById('leaderboardSound');
+    // const statsSound = document.getElementById('statsSound');
+    // const submitSound = document.getElementById('submitSound');
+    // const backgroundMusic = document.getElementById('backgroundMusic');
+
+
+    // Load sound settings from localStorage
+    const soundEnabled = localStorage.getItem('soundEnabled') === 'true';
+    if (soundToggleCheckbox) {
+        soundToggleCheckbox.checked = soundEnabled;
+    }
+
+
+    // Update sound elements based on the initial setting
+    if (wrongSound) wrongSound.muted = !soundEnabled;
+    if (correctSound) correctSound.muted = !soundEnabled;
+    // if (doubleScoreSound) doubleScoreSound.muted = !soundEnabled;
+    // if (skipSound) skipSound.muted = !soundEnabled;
+    // if (powerUpSound) powerUpSound.muted = !soundEnabled;
+    // if (timerSound) timerSound.muted = !soundEnabled;
+    // if (leaderboardSound) leaderboardSound.muted = !soundEnabled;
+    // if (statsSound) statsSound.muted = !soundEnabled;
+    // if (submitSound) submitSound.muted = !soundEnabled;
+    // if (backgroundMusic) backgroundMusic.muted = !soundEnabled;
+
+
+    // Add event listener for the sound toggle checkbox
+    if (soundToggleCheckbox) {
+        soundToggleCheckbox.addEventListener('change', (event) => {
+            const isChecked = event.target.checked;
+            if (wrongSound) wrongSound.muted = !isChecked;
+            if (correctSound) correctSound.muted = !isChecked;
+            localStorage.setItem('soundEnabled', isChecked);
+        });
+    }
+
 }
 
-/**
- * Displays a temporary notification for a purchase.
- */
-function showPurchaseNotification(message, type) {
-  const notification = document.createElement("div");
-  notification.classList.add('fixed', 'top-10', 'left-1/2', '-translate-x-1/2', 'p-4', 'rounded-lg', 'shadow-xl', 'z-50', 'text-center', 'animate-fadeInOut');
-
-  if (type === 'success') {
-    notification.classList.add('bg-green-600', 'text-white');
-  } else if (type === 'error') {
-    notification.classList.add('bg-red-600', 'text-white');
-  }
-
-  notification.textContent = message;
-  document.body.appendChild(notification);
-
-  if (!document.getElementById('fadeInOutStyle')) {
-    const styleSheet = document.createElement("style");
-    styleSheet.id = 'fadeInOutStyle';
-    styleSheet.type = "text/css";
-    styleSheet.innerText = `
-      @keyframes fadeInOut {
-        0% { opacity: 0; transform: translate(-50%, -50px); }
-        10% { opacity: 1; transform: translate(-50%, 0); }
-        90% { opacity: 1; transform: translate(-50%, 0); }
-        100% { opacity: 0; transform: translate(-50%, -50px); }
-      }
-      .animate-fadeInOut {
-        animation: fadeInOut 3s forwards;
-      }
-    `;
-    document.head.appendChild(styleSheet);
-  }
-
-  setTimeout(() => notification.remove(), 3000);
+// Shuffle Array
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
 }
 
-/**
- * Opens the AI Assistant modal and displays the solution.
- * Shows a loading indicator while the solution is being fetched.
- */
-function showAIAssistantModal() {
-  if (domElements.aiAssistantModal) {
-    domElements.aiAssistantModal.classList.remove("hidden");
-    domElements.aiAssistantModal.classList.add("show");
-    domElements.aiSolutionContent.innerHTML = ''; // Clear previous content
-    domElements.aiLoadingIndicator.classList.remove('hidden'); // Show loading indicator
-  }
-}
 
-/**
- * Closes the AI Assistant modal.
- */
-function closeAIAssistantModal() {
-  if (domElements.aiAssistantModal) {
-    domElements.aiAssistantModal.classList.remove("show");
-    domElements.aiAssistantModal.classList.add("hidden");
-    displayProblem(); // Display next problem after closing AI modal
-  }
-}
+// Save settings to localStorage and navigate to game page (from options.html)
+// This part of the code is likely executed on options.html, not game.html
+const settingsForm = document.querySelector('#options .settings');
+const startGameButton = document.getElementById('startGame');
 
-/**
- * Generates a step-by-step solution for the given problem using the Gemini API.
- * @param {object} problem - The problem object containing question and answer.
- * @returns {Promise<string>} A promise that resolves to the LaTeX formatted solution.
- */
-async function generateAISolution(problem) {
-  const prompt = `Provide a step-by-step solution for the following calculus problem.
-  The problem is: ${problem.question}
-  The correct answer is: ${problem.answer}
-  Please format the solution using LaTeX. Use $$ for display math and $ for inline math.`;
+if (document.body.id === 'options-page') { // Add an ID to your options.html body for specific script execution
+    window.addEventListener('DOMContentLoaded', () => {
+        const savedSettings = JSON.parse(localStorage.getItem('gameSettings')) || {
+            diff: true,
+            int: false,
+            time: 60,
+            difficulty: 1,
+        };
+        if (settingsForm) {
+            const diffCheckbox = settingsForm.querySelector('#diffCheckbox');
+            const intCheckbox = settingsForm.querySelector('#intCheckbox');
+            const timeSlider = settingsForm.querySelector('#timeSlider');
+            const difficultySlider = settingsForm.querySelector('#difficultySlider');
+            const timeValue = document.getElementById('timeValue');
+            const difficultyValue = document.getElementById('difficultyValue');
 
-  let chatHistory = [];
-  chatHistory.push({ role: "user", parts: [{ text: prompt }] });
-  const payload = { contents: chatHistory };
-  const apiKey = ""; // Leave as-is, Canvas will provide it at runtime.
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
-  try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+            if (diffCheckbox) diffCheckbox.checked = savedSettings.diff;
+            if (intCheckbox) intCheckbox.checked = savedSettings.int;
+            if (timeSlider) {
+                timeSlider.value = savedSettings.time;
+                if (timeValue) timeValue.textContent = `${savedSettings.time} seconds`;
+                timeSlider.addEventListener('input', () => {
+                    if (timeValue) timeValue.textContent = `${timeSlider.value} seconds`;
+                });
+            }
+            if (difficultySlider) {
+                difficultySlider.value = savedSettings.difficulty;
+                if (difficultyValue) difficultyValue.textContent = savedSettings.difficulty;
+                difficultySlider.addEventListener('input', () => {
+                    if (difficultyValue) difficultyValue.textContent = difficultySlider.value;
+                });
+            }
+        }
     });
 
-    if (!response.ok) {
-        // Log the full response status and text for debugging
-        const errorText = await response.text();
-        console.error(`AI solution generation failed: HTTP Status ${response.status} - ${response.statusText}`, errorText);
-        return `$$Error: API call failed. Status: ${response.status} ${response.statusText}. Please check your console for details and ensure your API key is valid.$$`;
-    }
-
-    const result = await response.json();
-    if (result.candidates && result.candidates.length > 0 &&
-        result.candidates[0].content && result.candidates[0].content.parts &&
-        result.candidates[0].content.parts.length > 0) {
-      return result.candidates[0].content.parts[0].text;
-    } else {
-      console.error("AI solution generation failed: Unexpected response structure", result);
-      return "$$Error: Could not generate solution. Unexpected API response. Please try again.$$";
-    }
-  } catch (error) {
-    console.error("Error calling Gemini API for solution:", error);
-    return `$$Error: Failed to connect to AI assistant. Check your network or API key. Details: ${error.message}$$`;
-  }
-}
-
-
-/**
- * Updates the navigation links based on authentication status.
- */
-function initializeAuthLinks() {
-  if (domElements.authLinks) {
-    const user = auth.currentUser;
-    if (user) {
-      domElements.authLinks.innerHTML = `
-        <li><a href="profile.html">Profile</a></li>
-        <li><a href="#" id="logoutButtonNav">Logout</a></li>
-      `;
-      const logoutBtnNav = document.getElementById('logoutButtonNav');
-      if (logoutBtnNav) {
-        logoutBtnNav.addEventListener('click', handleLogout);
-      }
-    } else {
-      domElements.authLinks.innerHTML = `
-        <li><a href="login.html">Login</a></li>
-        <li><a href="signup.html">Sign Up</a></li>
-      `;
-    }
-  }
-}
-
-/**
- * Handles user login with email and password.
- */
-async function validateLoginForm() {
-  const emailInput = document.getElementById('email');
-  const passwordInput = document.getElementById('password');
-
-  if (!emailInput || !passwordInput) {
-      console.error("Login form elements not found.");
-      return false;
-  }
-
-  const email = emailInput.value;
-  const password = passwordInput.value;
-
-  try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      console.log("User logged in:", userCredential.user.uid);
-      window.location.href = 'profile.html'; // Redirect on successful login
-  } catch (error) {
-      console.error("Error logging in:", error.message);
-      showPurchaseNotification(`Login failed: ${error.message}`, 'error');
-  }
-  return false; // Prevent default form submission
-}
-
-/**
- * Handles user signup with email, password, and username.
- */
-async function validateSignupForm() {
-  const usernameInput = document.getElementById('username');
-  const emailInput = document.getElementById('email');
-  const passwordInput = document.getElementById('password');
-
-  if (!usernameInput || !emailInput || !passwordInput) {
-      console.error("Signup form elements not found.");
-      return false;
-  }
-
-  const username = usernameInput.value;
-  const email = emailInput.value;
-  const password = passwordInput.value;
-
-  try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const userId = userCredential.user.uid;
-      console.log("User signed up:", userId);
-
-      // Save initial user profile data to Firestore
-      const userDocRef = doc(db, `artifacts/${appId}/users/${userId}/profile`, 'data');
-      await setDoc(userDocRef, {
-          username: username,
-          email: email,
-          highScore: 0,
-          galacticCoins: 0,
-          powerUps: { skip: 0, doubleScore: 0, extraTime: 0 },
-          stats: { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 },
-          achievements: [],
-          dailyStreak: 0,
-          lastPlayed: null,
-      });
-      console.log("Initial user profile created in Firestore.");
-
-      window.location.href = 'login.html'; // Redirect to login after signup
-  } catch (error) {
-      console.error("Error signing up:", error.message);
-      showPurchaseNotification(`Signup failed: ${error.message}`, 'error');
-  }
-  return false; // Prevent default form submission
-}
-
-/**
- * Handles social sign-in with a given Firebase Auth provider.
- * @param {firebase.auth.AuthProvider} provider - The Firebase Auth provider (e.g., GoogleAuthProvider).
- */
-async function handleSocialSignIn(provider) {
-  try {
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-    console.log("Social sign-in successful:", user.uid, user.displayName, user.email);
-
-    // Check if user data already exists in Firestore for this user
-    const userDocRef = doc(db, `artifacts/${appId}/users/${user.uid}/profile`, 'data');
-    const docSnap = await getDoc(userDocRef);
-
-    if (!docSnap.exists()) {
-      // If new user, create a profile in Firestore
-      await setDoc(userDocRef, {
-        username: user.displayName || user.email.split('@')[0] || "NewUser",
-        email: user.email,
-        highScore: 0,
-        galacticCoins: 0,
-        powerUps: { skip: 0, doubleScore: 0, extraTime: 0 },
-        stats: { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0 },
-        achievements: [],
-        dailyStreak: 0,
-        lastPlayed: null,
-      });
-      console.log("New user profile created in Firestore for social login.");
-    }
-
-    window.location.href = 'profile.html'; // Redirect to profile page
-  } catch (error) {
-    console.error("Social sign-in failed:", error.code, error.message);
-    showPurchaseNotification(`Social login failed: ${error.message}`, 'error');
-  }
-}
-
-// Social Login functions - exposed globally for HTML onclick
-window.signInWithGoogle = () => handleSocialSignIn(googleProvider);
-window.signInWithApple = () => handleSocialSignIn(appleProvider);
-window.signInWithGitHub = () => handleSocialSignIn(githubProvider);
-window.signInWithMicrosoft = () => handleSocialSignIn(microsoftProvider);
-
-
-/**
- * Handles user logout.
- */
-async function handleLogout() {
-  try {
-      await signOut(auth);
-      console.log("User logged out successfully.");
-      window.location.href = 'index.html'; // Redirect to index page after logout
-  } catch (error) {
-      console.error("Error logging out:", error.message);
-      showPurchaseNotification(`Logout failed: ${error.message}`, 'error');
-  }
-}
-
-/**
- * Updates the profile display on the profile.html page.
- */
-function updateProfileDisplay(username, email, highScore, gamesPlayed, userId) {
-  if (domElements.profileUsername) domElements.profileUsername.textContent = username;
-  if (domElements.profileEmail) domElements.profileEmail.textContent = email;
-  if (domElements.profileHighScore) domElements.profileHighScore.textContent = highScore;
-  if (domElements.profileGamesPlayed) domElements.profileGamesPlayed.textContent = gamesPlayed;
-  if (domElements.profileUserId) domElements.profileUserId.textContent = userId; // Display the user ID
-}
-
-// Event Listeners for Game Page
-if (domElements.submitButton) {
-  domElements.submitButton.addEventListener("click", validateAnswer);
-}
-if (domElements.skipButton) {
-  domElements.skipButton.addEventListener("click", useSkip);
-}
-if (domElements.doubleScoreButton) {
-  domElements.doubleScoreButton.addEventListener("click", useDoubleScore);
-}
-if (domElements.extraTimeButton) {
-  domElements.extraTimeButton.addEventListener("click", useExtraTime);
-}
-if (domElements.shopButton) {
-  domElements.shopButton.addEventListener("click", openShopModal);
-}
-if (domElements.shopModal) {
-  const closeShopBtn = domElements.shopModal.querySelector('.close-button');
-  if (closeShopBtn) {
-    closeShopBtn.addEventListener('click', closeShopModal);
-  }
-}
-if (domElements.aiAssistantModal) { // New: AI Assistant modal close button
-  const closeAIAssistantBtn = domElements.aiAssistantModal.querySelector('.close-button');
-  if (closeAIAssistantBtn) {
-    closeAIAssistantBtn.addEventListener('click', closeAIAssistantModal);
-  }
-}
-
-// Event listener for the "Restart Game" button in the Game Over modal
-if (domElements.gameOverModal) {
-    const restartBtn = domElements.gameOverModal.querySelector('.btn');
-    if (restartBtn) {
-        restartBtn.addEventListener('click', () => {
-            location.reload();
+    if (startGameButton) {
+        startGameButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            const settings = {
+                diff: settingsForm.querySelector('#diffCheckbox').checked,
+                int: settingsForm.querySelector('#intCheckbox').checked,
+                time: parseInt(settingsForm.querySelector('#timeSlider').value),
+                difficulty: parseInt(settingsForm.querySelector('#difficultySlider').value),
+            };
+            localStorage.setItem('gameSettings', JSON.stringify(settings));
+            gameState.settings = settings; // Update game state for the upcoming game
+            window.location.href = 'game.html';
         });
     }
 }
 
-// Event listeners for login/signup/profile pages
-if (domElements.loginForm) {
-  domElements.loginForm.addEventListener('submit', validateLoginForm);
-}
-if (domElements.signupForm) {
-  domElements.signupForm.addEventListener('submit', validateSignupForm);
-}
-if (domElements.logoutButton) {
-  domElements.logoutButton.addEventListener('click', handleLogout);
-}
-
-// Initial calls for profile page (if on profile.html)
-if (window.location.pathname.includes('profile.html')) {
-  // This will be handled by onAuthStateChanged which calls loadUserData
-  // and then updateProfileDisplay with actual user data.
-  // We simply ensure the DOM elements are ready.
-}
+// Initializing the game only when the DOM is fully loaded
+document.addEventListener('DOMContentLoaded', initializeGame);
