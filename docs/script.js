@@ -6,7 +6,7 @@ import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, limit,
 // Global Firebase variables (provided by Canvas environment)
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? initialAuthToken : null; // Fixed typo: 'initialAuthToken' instead of '__initial_auth_token'
 
 // Firebase App and Services instances
 let app;
@@ -27,8 +27,8 @@ const gameState = {
     dailyStreak: parseInt(localStorage.getItem('dailyStreak')) || 0,
     lastPlayed: localStorage.getItem('lastPlayed') || null,
     settings: JSON.parse(localStorage.getItem('gameSettings')) || {
-        difficulty: 'medium',
-        questionTypes: ['diff', 'antiderivative'],
+        difficulty: 1, // Default to easy (level 1)
+        questionTypes: ['diff'], // Default to differentiation
         timer: 120,
     },
     leaderboard: [], // Leaderboard will be fetched from Firestore
@@ -231,45 +231,172 @@ function startTimer() {
     }, 1000);
 }
 
+/**
+ * Maps numeric difficulty to a descriptive string for AI prompt.
+ * @param {number} difficulty - The numeric difficulty level (1-8).
+ * @returns {string} A descriptive string for the AI.
+ */
+function getDifficultyDescription(difficulty) {
+    switch (difficulty) {
+        case 1: return "very simple (e.g., derivative of x^2, integral of constant)";
+        case 2: return "easy (e.g., derivative of polynomial, simple power rule integral)";
+        case 3: return "medium (e.g., basic chain rule, simple substitution integral)";
+        case 4: return "hard (e.g., product/quotient rule, integration by parts)";
+        case 5: return "insane (e.g., complex chain rule, trigonometric substitution, partial fractions)";
+        case 6: return "legend (e.g., implicit differentiation, advanced integration techniques)";
+        case 7: return "goat (e.g., related rates, optimization problems, complex series integration)";
+        case 8: return "extremely challenging (e.g., multi-variable calculus concepts, complex differential equations)";
+        default: return "easy";
+    }
+}
+
+/**
+ * Generates a differentiation problem using the Gemini API.
+ * @param {number} difficulty - The difficulty level.
+ * @returns {Promise<{question: string, answer: string}>} A promise that resolves to the generated problem.
+ */
+async function getDifferentiationProblemFromAI(difficulty) {
+    const difficultyDesc = getDifficultyDescription(difficulty);
+    const prompt = `Generate a differentiation problem for a calculus game. The question should be a derivative with respect to x, formatted in LaTeX using \\frac{d}{dx}. The answer should also be in LaTeX format. Ensure the problem is ${difficultyDesc}. Provide the response as a JSON object with 'question' and 'answer' fields.`;
+
+    try {
+        let chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+        const payload = {
+            contents: chatHistory,
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: "OBJECT",
+                    properties: {
+                        "question": { "type": "STRING" },
+                        "answer": { "type": "STRING" }
+                    },
+                    "required": ["question", "answer"],
+                    "propertyOrdering": ["question", "answer"] // Ensure order
+                }
+            }
+        };
+        const apiKey = ""; // Canvas will provide this at runtime
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+        if (result.candidates && result.candidates.length > 0 &&
+            result.candidates[0].content && result.candidates[0].content.parts &&
+            result.candidates[0].content.parts.length > 0) {
+            const jsonString = result.candidates[0].content.parts[0].text;
+            // Attempt to parse the JSON string. The API might return it as a stringified JSON.
+            const parsedResult = JSON.parse(jsonString);
+            if (parsedResult.question && parsedResult.answer) {
+                return parsedResult;
+            } else {
+                console.error("Generated JSON is missing 'question' or 'answer' fields:", parsedResult);
+                throw new Error("Invalid problem structure from AI.");
+            }
+        } else {
+            console.error("Unexpected AI response structure for differentiation problem:", result);
+            throw new Error("Failed to generate differentiation problem.");
+        }
+    } catch (error) {
+        console.error("Error generating differentiation problem from AI:", error);
+        // Fallback to a hardcoded easy problem if AI generation fails
+        return { question: "\\frac{d}{dx}(x^2)", answer: "2x" };
+    }
+}
+
+/**
+ * Generates an integration problem using the Gemini API.
+ * @param {number} difficulty - The difficulty level.
+ * @returns {Promise<{question: string, answer: string}>} A promise that resolves to the generated problem.
+ */
+async function getIntegrationProblemFromAI(difficulty) {
+    const difficultyDesc = getDifficultyDescription(difficulty);
+    const prompt = `Generate an integration problem for a calculus game. The question should be an integral formatted in LaTeX using \\int and dx. The answer should also be in LaTeX format and include the constant of integration +C. Ensure the problem is ${difficultyDesc}. Provide the response as a JSON object with 'question' and 'answer' fields.`;
+
+    try {
+        let chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+        const payload = {
+            contents: chatHistory,
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: "OBJECT",
+                    properties: {
+                        "question": { "type": "STRING" },
+                        "answer": { "type": "STRING" }
+                    },
+                    "required": ["question", "answer"],
+                    "propertyOrdering": ["question", "answer"] // Ensure order
+                }
+            }
+        };
+        const apiKey = ""; // Canvas will provide this at runtime
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+        if (result.candidates && result.candidates.length > 0 &&
+            result.candidates[0].content && result.candidates[0].content.parts &&
+            result.candidates[0].content.parts.length > 0) {
+            const jsonString = result.candidates[0].content.parts[0].text;
+            // Attempt to parse the JSON string. The API might return it as a stringified JSON.
+            const parsedResult = JSON.parse(jsonString);
+            if (parsedResult.question && parsedResult.answer) {
+                return parsedResult;
+            } else {
+                console.error("Generated JSON is missing 'question' or 'answer' fields:", parsedResult);
+                throw new Error("Invalid problem structure from AI.");
+            }
+        } else {
+            console.error("Unexpected AI response structure for integration problem:", result);
+            throw new Error("Failed to generate integration problem.");
+        }
+    } catch (error) {
+        console.error("Error generating integration problem from AI:", error);
+        // Fallback to a hardcoded easy problem if AI generation fails
+        return { question: "\\int x \\, dx", answer: "\\frac{x^2}{2}+C" };
+    }
+}
+
+
 // Problem Generation
-function generateProblem(type) {
-    const problems = {
-        diff: getDifferentiationProblems(),
-        antiderivative: getIntegrationProblems(),
-    };
-    const selectedType = type || gameState.settings.questionTypes[Math.floor(Math.random() * gameState.settings.questionTypes.length)];
-    const difficultyLevel = parseInt(gameState.settings.difficulty); // Ensure difficulty is a number
+async function generateProblem() {
+    const selectedType = gameState.settings.questionTypes[Math.floor(Math.random() * gameState.settings.questionTypes.length)];
+    const difficultyLevel = parseInt(gameState.settings.difficulty);
 
-    let problemSet;
-    switch (difficultyLevel) {
-        case 1: problemSet = problems[selectedType].easy; break;
-        case 2: problemSet = problems[selectedType].medium; break;
-        case 3: problemSet = problems[selectedType].hard; break;
-        case 4: problemSet = problems[selectedType].insane; break;
-        case 5: problemSet = problems[selectedType].impossible; break;
-        case 6: problemSet = problems[selectedType].legend; break;
-        case 7: problemSet = problems[selectedType].goat; break;
-        case 8: problemSet = [...problems[selectedType].easy, ...problems[selectedType].medium, ...problems[selectedType].hard, ...problems[selectedType].insane, ...problems[selectedType].impossible, ...problems[selectedType].legend, ...problems[selectedType].goat]; shuffleArray(problemSet); break;
-        default: problemSet = problems[selectedType].easy; // Default to easy
+    let problem;
+    if (selectedType === 'diff') {
+        problem = await getDifferentiationProblemFromAI(difficultyLevel);
+    } else if (selectedType === 'antiderivative') { // Assuming 'antiderivative' corresponds to 'int' for problem types
+        problem = await getIntegrationProblemFromAI(difficultyLevel);
+    } else {
+        // Fallback if no valid type is selected
+        console.warn("No valid question type selected. Defaulting to easy differentiation.");
+        problem = await getDifferentiationProblemFromAI(1);
     }
-
-    if (!problemSet || problemSet.length === 0) {
-        console.error("No problems found for selected type and difficulty. Defaulting to easy differentiation.");
-        return problems['diff'].easy[0]; // Fallback to a default problem
-    }
-
-    return problemSet[Math.floor(Math.random() * problemSet.length)];
+    return problem;
 }
 
 // Function to create a new problem
-function newProblem() {
-    const problem = generateProblem();
+async function newProblem() { // Made async to await problem generation
+    const problem = await generateProblem();
     // Update the MathLive element's value directly
     if (domElements.question) {
         domElements.question.value = problem.question;
     }
 
-    console.log(problem.question);
+    console.log("Generated Problem:", problem.question);
+    console.log("Expected Answer:", problem.answer);
 
     if (domElements.answerInput) domElements.answerInput.value = ''; // Clear the input field
     if (domElements.question) domElements.question.classList.remove('incorrect');
@@ -277,227 +404,9 @@ function newProblem() {
 }
 
 
-// Differentiation problems categorized by difficulty
-function getDifferentiationProblems() {
-    const easy = [
-        { question: "\\frac{d}{dx}(x^2)", answer: "2x" },
-        { question: "\\frac{d}{dx}(2x^2)", answer: "4x" },
-        { question: "\\frac{d}{dx}(3x^2)", answer: "6x" },
-        { question: "\\frac{d}{dx}(x)", answer: "1" },
-        { question: "\\frac{d}{dx}(8)", answer: "0" },
-        { question: "\\frac{d}{dx}(15)", answer: "0" },
-        { question: "\\frac{d}{dx}(20x)", answer: "20" },
-        { question: "\\frac{d}{dx}(12x^2)", answer: "24x" },
-    ];
-
-    const medium = [
-        { question: "\\frac{d}{dx}(4x^3)", answer: "12x^2" },
-        { question: "\\frac{d}{dx}(13x^4)", answer: "52x^3"},
-        { question: "\\frac{d}{dx}(7x^5)", answer: "35x^4" },
-        { question: "\\frac{d}{dx}(9x^6)", answer: "54x^5" },
-        { question: "\\frac{d}{dx}(11x^7)", answer: "77x^6" },
-        { question: "\\frac{d}{dx}(5x^8)", answer: "40x^7" },
-        { question: "\\frac{d}{dx}(3x^9)", answer: "27x^8" },
-        { question: "\\frac{d}{dx}(2x^{10})", answer: "20x^9" },
-        { question: "\\frac{d}{dx}(x^{11})", answer: "11x^{10}" },
-        { question: "\\frac{d}{dx}(x^2 + 2x)", answer: "2x+2" },
-        { question: "\\frac{d}{dx}(2x^2 + 4x)", answer: "4x+4" },
-        { question: "\\frac{d}{dx}(3x^2 + 6x)", answer: "6x+6" },
-        { question: "\\frac{d}{dx}(x + 2x^2)", answer: "1+4x" },
-        { question: "\\frac{d}{dx}(2x + 4x^2)", answer: "2+8x" },
-        { question: "\\frac{d}{dx}(3x + 6x^2)", answer: "3+12x" },
-        { question: "\\frac{d}{dx}(4x^2 + 8x)", answer: "8x+8" },
-        { question: "\\frac{d}{dx}(5x^2 + 10x)", answer: "10x+10" },
-        { question: "\\frac{d}{dx}(6x^2 + 12x)", answer: "12x+12" },
-        { question: "\\frac{d}{dx}(7x^2 + 14x)", answer: "14x+14" },
-        { question: "\\frac{d}{dx}(8x^2 + 16x)", answer: "16x+16" },
-        { question: "\\frac{d}{dx}(9x^2 + 18x)", answer: "18x+18" },
-        { question: "\\frac{d}{dx}(10x^2 + 20x)", answer: "20x+20" },
-        { question: "\\frac{d}{dx}(11x^2 + 22x)", answer: "22x+22" },
-        { question: "\\frac{d}{dx}(12x^2 + 24x)", answer: "24x+24" },
-        { question: "\\frac{d}{dx}(13x^2 + 26x)", answer: "26x+26" },
-        { question: "\\frac{d}{dx}(14x^2 + 28x)", answer: "28x+28" },
-        { question: "\\frac{d}{dx}(6x^3)", answer: "18x^2" },
-        { question: "\\frac{d}{dx}(3x^4)", answer: "12x^3" },
-        { question: "\\frac{d}{dx}(x^3)", answer: "3x^2" },
-    ];
-
-    const hard = [
-        { question: "\\frac{d}{dx}(x^{10})", answer: "10x^9" },
-        { question: "\\frac{d}{dx}(x^{11})", answer: "11x^{10}" },
-        { question: "\\frac{d}{dx}(e^x)", answer: "e^x" },
-        { question: "\\frac{d}{dx}(sin(x))", answer: "cos(x)" },
-        { question: "\\frac{d}{dx}(cos(x))", answer: "-sin(x)" },
-        { question: "\\frac{d}{dx}(tan(x))", answer: "sec^2(x)" },
-        { question: "\\frac{d}{dx}(ln(x))", answer: "\\frac{1}{x}" },
-        { question: "\\frac{d}{dx}(e^{2x})", answer: "2e^{2x}" },
-        { question: "\\frac{d}{dx}(sin(2x))", answer: "2cos(2x)" },
-        { question: "\\frac{d}{dx}(cos(2x))", answer: "-2sin(2x)" },
-        { question: "\\frac{d}{dx}(tan(2x))", answer: "2sec^2(2x)" },
-        { question: "\\frac{d}{dx}(ln(2x))", answer: "\\frac{1}{x}" },
-        { question: "\\frac{d}{dx}(e^{3x})", answer: "3e^{3x}" },
-        { question: "\\frac{d}{dx}(sin(3x))", answer: "3cos(3x)" },
-        { question: "\\frac{d}{dx}(cos(3x))", answer: "-3sin(3x)" },
-        { question: "\\frac{d}{dx}(tan(3x))", answer: "3sec^2(3x)" },
-        { question: "\\frac{d}{dx}(ln(3x))", answer: "\\frac{1}{x}" },
-        { question: "\\frac{d}{dx}(e^{4x})", answer: "4e^{4x}" },
-        { question: "\\frac{d}{dx}(sin(4x))", answer: "4cos(4x)" },
-        { question: "\\frac{d}{dx}(cos(4x))", answer: "-4sin(4x)" },
-        { question: "\\frac{d}{dx}(tan(4x))", answer: "4sec^2(4x)" },
-        { question: "\\frac{d}{dx}(ln(4x))", answer: "\\frac{1}{x}" },
-        { question: "\\frac{d}{dx}(e^{5x})", answer: "5e^{5x}" },
-        { question: "\\frac{d}{dx}(sin(5x))", answer: "5cos(5x)" },
-        { question: "\\frac{d}{dx}(x^5 + 5)", answer: "5x^4" },
-        { question: "\\frac{d}{dx}(x^6 - 3x^2 + 2)", answer: "6x^5-6x" },
-        { question: "\\frac{d}{dx}(x^7 + 2x^3 + 3)", answer: "7x^6+6x^2" },
-        { question: "\\frac{d}{dx}(x^8 - 4x^4 + 5)", answer: "8x^7-16x^3" },
-        { question: "\\frac{d}{dx}(x^9 + 3x^5 + 7)", answer: "9x^8+15x^4" },
-        { question: "\\frac{d}{dx}(x^{10} - 2x^6 + 9)", answer: "10x^9-12x^5" },
-        { question: "\\frac{d}{dx}(x^{11} + 4x^7 + 11)", answer: "11x^{10}+28x^6" },
-        { question: "\\frac{d}{dx}(x^{12} - 3x^8 + 13)", answer: "12x^{11}-24x^7" },
-        { question: "\\frac{d}{dx}(x^{13} + 5x^9 + 17)", answer: "13x^{12}+45x^8" },
-        { question: "\\frac{d}{dx}(x^{14} - 2x^{10} + 19)", answer: "14x^{13}-20x^9" },
-        { question: "\\frac{d}{dx}(x^{15} + 3x^{11} + 23)", answer: "15x^{14}+33x^{10}" },
-        { question: "\\frac{d}{dx}(x^{16} - 4x^{12} + 29)", answer: "16x^{15}-48x^{11}" },
-        { question: "\\frac{d}{dx}(x^{17} + 5x^{13} + 31)", answer: "17x^{16}+65x^{12}" },
-        { question: "\\frac{d}{dx}(x^{18} - 2x^{14} + 37)", answer: "18x^{17}-28x^{13}" },
-        { question: "\\frac{d}{dx}(x^{19} + 3x^{15} + 41)", answer: "19x^{18}+45x^{14}" },
-        { question: "\\frac{d}{dx}(x^{20} - 4x^{16} + 43)", answer: "20x^{19}-64x^{15}" },
-        { question: "\\frac{d}{dx}(x^{21} + 5x^{17} + 47)", answer: "21x^{20}+85x^{16}" },
-        { question: "\\frac{d}{dx}(x^{22} - 2x^{18} + 53)", answer: "22x^{21}-36x^{17}" },
-        { question: "\\frac{d}{dx}(x^{23} + 3x^{19} + 59)", answer: "23x^{22}+57x^{18}" },
-        { question: "\\frac{d}{dx}(x^{24} - 4x^{20} + 61)", answer: "24x^{23}-80x^{19}" },
-        { question: "\\frac{d}{dx}(x^{25} + 5x^{21} + 67)", answer: "25x^{24}+105x^{20}" },
-        { question: "\\frac{d}{dx}(x^{26} - 2x^{22} + 71)", answer: "26x^{25}-44x^{21}" },
-        { question: "\\frac{d}{dx}(x^{27} + 3x^{23} + 73)", answer: "27x^{26}+69x^{22}" },
-        { question: "\\frac{d}{dx}(x^{28} - 4x^{24} + 79)", answer: "28x^{27}-96x^{23}" },
-        { question: "\\frac{d}{dx}(x^{29} + 5x^{25} + 83)", answer: "29x^{28}+125x^{24}" },
-        { question: "\\frac{d}{dx}(x^{30} - 2x^{26} + 89)", answer: "30x^{29}-52x^{25}" },
-        { question: "\\frac{d}{dx}(x^{31} + 3x^{27} + 97)", answer: "31x^{30}+81x^{26}" },
-        { question: "\\frac{d}{dx}(x^{32} - 4x^{28} + 101)", answer: "32x^{31}-112x^{27}" },
-        { question: "\\frac{d}{dx}(x^{33} + 5x^{29} + 103)", answer: "33x^{32}+145x^{28}" },
-        { question: "\\frac{d}{dx}(x^{34} - 2x^{30} + 107)", answer: "34x^{33}-60x^{29}" },
-        { question: "\\frac{d}{dx}(x^{35} + 3x^{31} + 109)", answer: "35x^{34}+93x^{30}" },
-        { question: "\\frac{d}{dx}(x^{36} - 4x^{32} + 113)", answer: "36x^{35}-128x^{31}" },
-        { question: "\\frac{d}{dx}(x^{37} + 5x^{33} + 127)", answer: "37x^{36}+165x^{32}" },
-        { question: "\\frac{d}{dx}(x^{38} - 2x^{34} + 131)", answer: "38x^{37}-68x^{33}" },
-        { question: "\\frac{d}{dx}(x^{39} + 3x^{35} + 137)", answer: "39x^{38}+105x^{34}" },
-        { question: "\\frac{d}{dx}(x^{40} - 4x^{36} + 139)", answer: "40x^{39}-144x^{35}" },
-        { question: "\\frac{d}{dx}(x^{41} + 5x^{37} + 149)", answer: "41x^{40}+185x^{36}" },
-        { question: "\\frac{d}{dx}(x^{42} - 2x^{38} + 151)", answer: "42x^{41}-76x^{37}" },
-        { question: "\\frac{d}{dx}(x^{43} + 3x^{39} + 157)", answer: "43x^{42}+117x^{38}" },
-        { question: "\\frac{d}{dx}(x^{44} - 4x^{40} + 163)", answer: "44x^{43}-160x^{39}" },
-        { question: "\\frac{d}{dx}(x^{45} + 5x^{41} + 167)", answer: "45x^{44}+205x^{40}" },
-        { question: "\\frac{d}{dx}(x^{46} - 2x^{42} + 173)", answer: "46x^{45}-84x^{41}" },
-        { question: "\\frac{d}{dx}(x^{47} + 3x^{43} + 179)", answer: "47x^{46}+129x^{42}" },
-        { question: "\\frac{d}{dx}(x^{48} - 4x^{44} + 181)", answer: "48x^{47}-176x^{43}" },
-        { question: "\\frac{d}{dx}(x^{49} + 5x^{45} + 191)", answer: "49x^{48}+225x^{44}" },
-    ];
-    const insane = [
-        { question: "\\frac{d}{dx}(x^2e^x)", answer: "2xe^x + x^2e^x" },
-        { question: "\\frac{d}{dx}(\\ln(x^2 + 1))", answer: "\\frac{2x}{x^2 + 1}" },
-        { question: "\\frac{d}{dx}(\\sin(x^3))", answer: "3x^2\\cos(x^3)" },
-        { question: "\\frac{d}{dx}(\\tan(2x))", answer: "2\\sec^2(2x)" },
-        { question: "\\frac{d}{dx}(e^{x^2})", answer: "2xe^{x^2}" },
-        { question: "\\frac{d}{dx}(x^3\\ln(x))", answer: "3x^2\\ln(x) + x^2" },
-        { question: "\\frac{d}{dx}(\\frac{x}{x^2 + 1})", answer: "\\frac{1 - x^2}{(x^2 + 1)^2}" },
-        { question: "\\frac{d}{dx}(\\sqrt{x^4 + 2})", answer: "\\frac{4x^3}{2\\sqrt{x^4 + 2}}" },
-        { question: "\\frac{d}{dx}(\\cos^2(x))", answer: "-2\\cos(x)\\sin(x)" },
-        { question: "\\frac{d}{dx}(x^x)", answer: "x^x(\\ln(x) + 1)" },
-        { question: "\\frac{d}{dx}(\\arcsin(x^2))", answer: "\\frac{2x}{\\sqrt{1 - x^4}}" },
-        { question: "\\frac{d}{dx}(\\ln(\\sin(x)))", answer: "\\cot(x)" },
-    ];
-
-    const impossible = [
-        { question: "\\frac{d}{dx}(x^x^x)", answer: "No elementary solution" },
-        { question: "\\frac{d}{dx}(e^{e^x})", answer: "e^{e^x}e^x" },
-        { question: "\\frac{d}{dx}(\\ln(\\ln(\\ln(x))))", answer: "\\frac{1}{\\ln(\\ln(x))\\ln(x)x}" },
-        { question: "\\frac{d}{dx}(\\sin(\\cos(\\tan(x))))", answer: "-\\cos(\\cos(\\tan(x)))\\sin(\\tan(x))\\sec^2(x)" },
-        { question: "\\frac{d}{dx}(x^{x^2})", answer: "x^{x^2}(2x\\ln(x) + 1)" },
-        { question: "\\frac{d}{dx}(\\arctan(\\sqrt{x^2 + 1}))", answer: "\\frac{x}{(x^2 + 1)\\sqrt{x^2 + 1}}" },
-        { question: "\\frac{d}{dx}(e^{x\\sin(x)})", answer: "e^{x\\sin(x)}(\\sin(x) + x\\cos(x))" },
-    ];
-
-    const legend = [
-        { question: "\\frac{d}{dx}(\\sin(x^2)\\cos(x^3))", answer: "2x\\cos(x^2)\\cos(x^3) - 3x^2\\sin(x^2)\\sin(x^3)" },
-        { question: "\\frac{d}{dx}(\\sqrt{x^3 + e^x})", answer: "\\frac{3x^2 + e^x}{2\\sqrt{x^3 + e^x}}" },
-        { question: "\\frac{d}{dx}(\\frac{x^3}{\\sin(x)})", answer: "\\frac{3x^2\\sin(x) - x^3\\cos(x)}{\\sin^2(x)}" },
-        { question: "\\frac{d}{dx}(\\arcsin(x)\\cdot\\arctan(x))", answer: "\\arctan(x)\\sqrt{1 - x^2} + \\arcsin(x)/(1 + x^2)" },
-    ];
-
-    const goat = [
-        { question: "\\frac{d}{dx}(x^2\\ln(x^2\\sin(x)))", answer: "2x\\ln(x^2\\sin(x)) + 2x\\cot(x) + 2x" },
-        { question: "\\frac{d}{dx}(\\sin^2(x^2)\\cos^2(x^3))", answer: "4x\\cos(x^2)\\sin(x^2)\\cos^2(x^3) - 6x^2\\sin^2(x^2)\\sin(x^3)\\cos(x^3)" },
-        { question: "\\frac{d}{dx}(\\ln(x\\cos(x))^x)", answer: "\\ln(x\\cos(x))^x(\\ln(\\ln(x\\cos(x))) + \\cot(x) + 1/x)" },
-        { question: "\\frac{d}{dx}(\\tan(x)^{\\tan(x)})", answer: "\\tan(x)^{\\tan(x)}(\\ln(\\tan(x))\\sec^2(x) + \\tan(x))" },
-        { question: "\\frac{d}{dx}(e^{x\\sin(x^2)})", answer: "e^{x\\sin(x^2)}(\\sin(x^2) + 2x^2\\cos(x^2))" },
-        { question: "\\frac{d}{dx}(x\\uparrow\\uparrow x)", answer: "x\\uparrow\\uparrow x(\\ln(x) + x)" },
-        { question: "\\frac{d}{dx}((x\\uparrow\\uparrow x)^x)", answer: "(x\\uparrow\\uparrow x)^x(\\ln(x\\uparrow\\uparrow x) + x\\ln(x))" },
-        { question: "\\frac{d}{dx}(\\ln(x)\\uparrow\\uparrow x)", answer: "(\\ln(x)\\uparrow\\uparrow x)(\\frac{1}{x} + x\\ln(\\ln(x)))" },
-    ];
-
-    return { easy, medium, hard, insane, impossible, legend, goat };
-}
-
-// Integration problems categorized by difficulty
-function getIntegrationProblems() {
-    const easy = [
-        { question: "\\int x \\, dx", answer: "\\frac{x^2}{2}+C" },
-        { question: "\\int 5 \\, dx", answer: "5x+C" },
-    ];
-
-    const medium = [
-        { question: "\\int 4x^3 \\, dx", answer: "x^4+C" },
-        { question: "\\int x^4 \\, dx", answer: "\\frac{x^5}{5}+C" },
-        { question: "\\int x^3 + 2x \\, dx", answer: "\\frac{x^4}{4}+x^2+C" },
-        { question: "\\int 8x^2 \\, dx", answer: "\\frac{8x^3}{3}+C" },
-        { question: "\\int 20x^3 \\, dx", answer: "5x^4+C" },
-        { question: "\\int 50x^3 \\, dx", answer: "25x^4+C" },
-    ];
-
-    const hard = [
-        { question: "\\int x^5 + 3 \\, dx", answer: "\\frac{x^6}{6}+3x+C" },
-        { question: "\\int e^{-x} \\cdot \\cos(x) \\, dx", answer: "\\frac{-e^{-x}(\\cos(x) + \\sin(x))}{2} + C" },
-        { question: "\\int \\frac{x}{x^2 + 1} \\, dx", answer: "0.5\\ln(x^2 + 1) + C" },
-        { question: "\\int x^2 \\cdot e^{x^2} \\, dx", answer: "\\frac{1}{2}e^{x^2}(x^2 - 1) + C" },
-        { question: "\\int x^3 \\, dx", answer: "\\frac{x^4}{4} + C" },
-        { question: "\\int \\sec(x)^2 \\, dx", answer: "\\tan(x) + C" },
-        { question: "\\int x \\cdot e^x \\, dx", answer: "(x - 1)e^x + C" },
-    ];
-
-    const insane = [
-        { question: "\\int \\frac{e^x}{1 + e^{2x}} \\, dx", answer: "\\frac{1}{2}\\ln|1 + e^{2x}| + C" },
-        { question: "\\int \\frac{\\ln(x)}{x} \\, dx", answer: "\\frac{(\\ln(x))^2}{2} + C" },
-        { question: "\\int x^2 \\cdot e^{-x^2} \\, dx", answer: "-\\frac{1}{2}e^{-x^2}(x^2 + 1) + C" },
-        { question: "\\int \\frac{1}{\\sqrt{x^4 + 1}} \\, dx", answer: "Elliptic substitution required" },
-        { question: "\\int \\sin(x^2) \\, dx", answer: "Requires Fresnel functions" },
-        { question: "\\int e^x \\sin(x) \\, dx", answer: "\\frac{1}{2}e^x(\\sin(x) - \\cos(x)) + C" },
-        { question: "\\int \\frac{1}{x \\ln(x)} \\, dx", answer: "\\ln|\\ln(x)| + C" },
-        { question: "\\int \\frac{x}{\\sqrt{x^2 + a^2}} \\, dx", answer: "\\sqrt{x^2 + a^2} - a\\ln(x + \\sqrt{x^2 + a^2}) + C" },
-        { question: "\\int x \\arcsin(x) \\, dx", answer: "\\frac{x \\arcsin(x)}{2} - \\frac{\\sqrt{1 - x^2}}{2} + C" },
-        { question: "\\int \\tan(x)^2 \\, dx", answer: "\\tan(x) - x + C" },
-    ];
-
-    const impossible = [
-        { question: "\\int e^{x^2} \\, dx", answer: "No elementary solution" },
-        { question: "\\int \\frac{1}{\\ln(x)} \\, dx", answer: "No elementary solution" },
-        { question: "\\int \\sin(x^2) \\cdot e^{x^3} \\, dx", answer: "No elementary solution" },
-        { question: "\\int \\sqrt{\\tan(x)} \\, dx", answer: "No elementary solution" },
-        { question: "\\int x^x \\, dx", answer: "No elementary solution" },
-        { question: "\\int \\sqrt{x^4 + 1} \\, dx", answer: "No elementary solution" },
-        { question: "\\int e^{x^2} \\cdot \\ln(x) \\, dx", answer: "No elementary solution" },
-        { question: "\\int \\frac{1}{\\sqrt{x^5 + 1}} \\, dx", answer: "No elementary solution" },
-        { question: "\\int \\arctan(x^2) \\, dx", answer: "No elementary solution" },
-        { question: "\\int \\ln(x^2 + 1) \\, dx", answer: "No elementary solution" },
-    ];
-
-    return { easy, medium, hard, insane, impossible };
-}
-
-
 // Display New Problem
-function displayProblem() {
-    gameState.currentProblem = newProblem();
+async function displayProblem() { // Made async to await problem generation
+    gameState.currentProblem = await newProblem();
     if (domElements.answerInput) domElements.answerInput.value = '';
     gameState.stats.totalQuestions++;
     updateStatsDisplay();
@@ -509,7 +418,11 @@ function validateAnswer() {
     const userAnswer = domElements.answerInput ? domElements.answerInput.value.trim() : '';
     const correctAnswer = gameState.currentProblem ? gameState.currentProblem.answer.trim() : '';
 
-    if (userAnswer === correctAnswer) {
+    // Normalize answers for comparison: remove all whitespace and "+C" for integration
+    const normalizedUserAnswer = userAnswer.replace(/\s+/g, '').replace(/\+C/g, '');
+    const normalizedCorrectAnswer = correctAnswer.replace(/\s+/g, '').replace(/\+C/g, '');
+
+    if (normalizedUserAnswer === normalizedCorrectAnswer) {
         handleCorrectAnswer();
     } else {
         handleIncorrectAnswer();
@@ -539,6 +452,7 @@ async function handleIncorrectAnswer() {
     }
 
     if (gameState.lives <= 0) endGame();
+    else displayProblem(); // Move to the next problem after showing solution
 }
 
 // AI Step-by-Step Solution
@@ -555,7 +469,7 @@ async function getStepByStepSolution(problem) {
     const prompt = `Provide a step-by-step solution for the following calculus problem.
     Question: ${problem.question}
     Correct Answer: ${problem.answer}
-    Please explain each step clearly. Provide the solution in LaTeX format, wrapped in $$...$$ for display by MathLive.`;
+    Please explain each step clearly. Provide the solution in LaTeX format, wrapped in $$...$$ for display by MathLive. If no elementary solution exists, state that.`;
 
     try {
         let chatHistory = [];
@@ -1027,23 +941,14 @@ async function initializeGame() {
     updatePowerUpsDisplay();
     updateStatsDisplay();
     startTimer();
-    displayProblem();
+    await displayProblem(); // Ensure problem is generated before displaying
     await displayLeaderboard(); // Ensure leaderboard is fetched after Firebase is ready
 
     // Sound toggle logic
     const soundToggleCheckbox = document.getElementById('sound-toggle-checkbox');
     const wrongSound = document.getElementById('wrongSound');
     const correctSound = document.getElementById('correctSound');
-    // Assuming these sounds exist, if not, they will be null and cause errors
     // Removed references to non-existent audio elements to prevent errors
-    // const doubleScoreSound = document.getElementById('doubleScoreSound');
-    // const skipSound = document.getElementById('skipSound');
-    // const powerUpSound = document.getElementById('powerUpSound');
-    // const timerSound = document.getElementById('timerSound');
-    // const leaderboardSound = document.getElementById('leaderboardSound');
-    // const statsSound = document.getElementById('statsSound');
-    // const submitSound = document.getElementById('submitSound');
-    // const backgroundMusic = document.getElementById('backgroundMusic');
 
 
     // Load sound settings from localStorage
@@ -1056,14 +961,6 @@ async function initializeGame() {
     // Update sound elements based on the initial setting
     if (wrongSound) wrongSound.muted = !soundEnabled;
     if (correctSound) correctSound.muted = !soundEnabled;
-    // if (doubleScoreSound) doubleScoreSound.muted = !soundEnabled;
-    // if (skipSound) skipSound.muted = !soundEnabled;
-    // if (powerUpSound) powerUpSound.muted = !soundEnabled;
-    // if (timerSound) timerSound.muted = !soundEnabled;
-    // if (leaderboardSound) leaderboardSound.muted = !soundEnabled;
-    // if (statsSound) statsSound.muted = !soundEnabled;
-    // if (submitSound) submitSound.muted = !soundEnabled;
-    // if (backgroundMusic) backgroundMusic.muted = !soundEnabled;
 
 
     // Add event listener for the sound toggle checkbox
