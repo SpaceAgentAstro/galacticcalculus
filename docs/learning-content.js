@@ -1,6 +1,6 @@
 // Learning Content Database for Galactic Calculus
 // Structured curriculum with lessons, explanations, and practice problems
-
+ 
 window.learningContent = {
     algebra: {
         beginner: {
