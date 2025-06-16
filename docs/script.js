@@ -1,3 +1,4 @@
+
 class GalacticCalculus {
     constructor() {
         this.currentQuestionIndex = 0;
